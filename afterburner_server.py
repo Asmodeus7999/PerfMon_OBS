@@ -1,0 +1,296 @@
+import ctypes
+from ctypes import wintypes
+import json
+import asyncio
+import websockets
+import math
+
+# --- WinAPI setup ---
+kernel32 = ctypes.windll.kernel32
+kernel32.OpenFileMappingW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+kernel32.OpenFileMappingW.restype = wintypes.HANDLE
+kernel32.MapViewOfFile.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, ctypes.c_size_t]
+kernel32.MapViewOfFile.restype = wintypes.LPVOID
+kernel32.UnmapViewOfFile.argtypes = [wintypes.LPCVOID]
+kernel32.UnmapViewOfFile.restype = wintypes.BOOL
+kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+kernel32.CloseHandle.restype = wintypes.BOOL
+
+# -- RTSS Shared Memory (for FPS + Frame Time) --------------------------------
+# Based on: RivaTuner Statistics Server SDK RTSSSharedMemory.h
+
+RTSS_SHM_NAME  = "RTSSSharedMemoryV2"
+RTSS_SIGNATURE = 0x53535452   # 'RTSS'
+
+class RTSS_SHARED_MEMORY_HEADER(ctypes.Structure):
+    _pack_ = 1
+    _fields_ = [
+        ("dwSignature",    ctypes.c_uint32),   # 0x53535452 = 'RTSS'
+        ("dwVersion",      ctypes.c_uint32),
+        ("dwAppEntrySize", ctypes.c_uint32),   # size of each process entry
+        ("dwAppArrOffset", ctypes.c_uint32),   # byte offset to process array
+        ("dwAppArrSize",   ctypes.c_uint32),   # number of process slots
+        ("dwOSDEntrySize", ctypes.c_uint32),
+        ("dwOSDArrOffset", ctypes.c_uint32),
+        ("dwOSDArrSize",   ctypes.c_uint32),
+        ("dwOSDFrame",     ctypes.c_uint32),
+    ]
+
+class RTSS_SHARED_MEMORY_ENTRY(ctypes.Structure):
+    """One slot per monitored process in the RTSS shared memory map."""
+    _pack_ = 1
+    _fields_ = [
+        ("dwProcessID",  ctypes.c_uint32),        # PID  (0 = empty slot)
+        ("szName",       ctypes.c_char * 260),    # process name
+        ("dwFlags",      ctypes.c_uint32),
+        ("dwTime0",      ctypes.c_uint32),        # internal timing counters
+        ("dwTime1",      ctypes.c_uint32),
+        ("dwFrames",     ctypes.c_uint32),        # frames since last sample
+        ("dwFrameTime",  ctypes.c_uint32),        # last frame time in microseconds
+        ("dwCurrentFPS", ctypes.c_uint32),        # current FPS x1000
+        ("dwAverageFPS", ctypes.c_uint32),        # average FPS x1000
+        ("dwMinFPS",     ctypes.c_uint32),        # min FPS x1000
+        ("dwMaxFPS",     ctypes.c_uint32),        # max FPS x1000
+    ]
+
+class RTSSReader:
+    FILE_MAP_READ = 0x0004
+
+    def __init__(self):
+        self.handle = None
+        self.ptr    = None
+
+    def connect(self):
+        self.handle = kernel32.OpenFileMappingW(self.FILE_MAP_READ, False, RTSS_SHM_NAME)
+        if not self.handle:
+            return False
+        self.ptr = kernel32.MapViewOfFile(self.handle, self.FILE_MAP_READ, 0, 0, 0)
+        if not self.ptr:
+            kernel32.CloseHandle(self.handle)
+            self.handle = None
+            return False
+        return True
+
+    def disconnect(self):
+        if self.ptr:
+            kernel32.UnmapViewOfFile(self.ptr)
+            self.ptr = None
+        if self.handle:
+            kernel32.CloseHandle(self.handle)
+            self.handle = None
+
+    def get_fps_data(self):
+        """Return dict with fps and frame_time_ms for the active game, or None."""
+        if not self.ptr and not self.connect():
+            return None
+        try:
+            hdr = RTSS_SHARED_MEMORY_HEADER.from_address(self.ptr)
+            if hdr.dwSignature != RTSS_SIGNATURE:
+                self.disconnect()
+                return None
+
+            # Pick the slot with the highest active FPS (= foreground game)
+            best_fps   = 0
+            best_ftime = 0
+            for i in range(hdr.dwAppArrSize):
+                addr = self.ptr + hdr.dwAppArrOffset + i * hdr.dwAppEntrySize
+                e = RTSS_SHARED_MEMORY_ENTRY.from_address(addr)
+                if e.dwProcessID == 0:
+                    continue
+                if e.dwCurrentFPS > best_fps:
+                    best_fps   = e.dwCurrentFPS
+                    best_ftime = e.dwFrameTime
+
+            return {
+                "fps":           round(best_fps   / 1000.0, 1),
+                "frame_time_ms": round(best_ftime / 1000.0, 2),
+            }
+        except Exception as e:
+            print(f"RTSS read error: {e}")
+            self.disconnect()
+            return None
+
+# --- MSI Afterburner MAHM Shared Memory Structures ---
+# Based on: C:\Program Files (x86)\MSI Afterburner\SDK\Include\MAHMSharedMemory.h
+
+MAX_PATH = 260
+MAHM_SIGNATURE = 0x4D41484D   # 'MAHM'
+MAHM_VERSION_2 = 0x00020000
+FLT_MAX        = 3.402823466e+38  # Value used by Afterburner when data is unavailable
+
+class MAHM_SHARED_MEMORY_HEADER(ctypes.Structure):
+    _pack_ = 1
+    _fields_ = [
+        ("dwSignature",    ctypes.c_uint32),  # 0x4D41484D = 'MAHM'
+        ("dwVersion",      ctypes.c_uint32),  # 0x00020000 for v2.0
+        ("dwHeaderSize",   ctypes.c_uint32),  # size of this header
+        ("dwNumEntries",   ctypes.c_uint32),  # number of MAHM_SHARED_MEMORY_ENTRY entries
+        ("dwEntrySize",    ctypes.c_uint32),  # size of each entry
+        ("time",           ctypes.c_int32),   # last polling time (__time32_t)
+        # v2.0+ fields:
+        ("dwNumGpuEntries",ctypes.c_uint32),  # number of GPU info entries
+        ("dwGpuEntrySize", ctypes.c_uint32),  # size of each GPU info entry
+    ]
+
+class MAHM_SHARED_MEMORY_ENTRY(ctypes.Structure):
+    _pack_ = 1
+    _fields_ = [
+        ("szSrcName",            ctypes.c_char * MAX_PATH),  # e.g. "GPU temperature"
+        ("szSrcUnits",           ctypes.c_char * MAX_PATH),  # e.g. "°C"
+        ("szLocalizedSrcName",   ctypes.c_char * MAX_PATH),
+        ("szLocalizedSrcUnits",  ctypes.c_char * MAX_PATH),
+        ("szRecommendedFormat",  ctypes.c_char * MAX_PATH),  # e.g. "%.0f"
+        ("data",                 ctypes.c_float),             # current value (FLT_MAX = unavailable)
+        ("minLimit",             ctypes.c_float),
+        ("maxLimit",             ctypes.c_float),
+        ("dwFlags",              ctypes.c_uint32),
+        ("dwGpu",                ctypes.c_uint32),            # GPU index, 0xFFFFFFFF = global
+        ("dwSrcId",              ctypes.c_uint32),            # sensor type ID constant
+    ]
+
+# --- Afterburner Reader ---
+
+class AfterburnerReader:
+    SHM_NAME     = "MAHMSharedMemory"
+    FILE_MAP_READ = 0x0004
+
+    def __init__(self):
+        self.handle = None
+        self.ptr    = None
+
+    def connect(self):
+        try:
+            self.handle = kernel32.OpenFileMappingW(self.FILE_MAP_READ, False, self.SHM_NAME)
+            if not self.handle:
+                print("MSI Afterburner shared memory not found. Is Afterburner running?")
+                return False
+
+            self.ptr = kernel32.MapViewOfFile(self.handle, self.FILE_MAP_READ, 0, 0, 0)
+            if not self.ptr:
+                print(f"MapViewOfFile failed. Error: {ctypes.GetLastError()}")
+                kernel32.CloseHandle(self.handle)
+                self.handle = None
+                return False
+
+            header = MAHM_SHARED_MEMORY_HEADER.from_address(self.ptr)
+            if header.dwSignature != MAHM_SIGNATURE:
+                print(f"Invalid MAHM signature: {hex(header.dwSignature)}. Expected {hex(MAHM_SIGNATURE)}.")
+                self.disconnect()
+                return False
+
+            v_major = header.dwVersion >> 16
+            v_minor = header.dwVersion & 0xFFFF
+            print(f"Connected to MSI Afterburner shared memory v{v_major}.{v_minor}")
+            print(f"  Entries: {header.dwNumEntries}  |  Entry size: {header.dwEntrySize} bytes")
+            return True
+        except Exception as e:
+            print(f"Error connecting to Afterburner: {e}")
+            self.disconnect()
+            return False
+
+    def disconnect(self):
+        if self.ptr:
+            kernel32.UnmapViewOfFile(self.ptr)
+            self.ptr = None
+        if self.handle:
+            kernel32.CloseHandle(self.handle)
+            self.handle = None
+
+    def _is_valid(self, value: float) -> bool:
+        """Return False if the value is FLT_MAX (unavailable) or NaN/Inf."""
+        return value < FLT_MAX * 0.9 and not math.isnan(value) and not math.isinf(value)
+
+    def get_data(self):
+        if not self.ptr:
+            if not self.connect():
+                return None
+        try:
+            header = MAHM_SHARED_MEMORY_HEADER.from_address(self.ptr)
+            if header.dwSignature != MAHM_SIGNATURE:
+                self.disconnect()
+                return None
+
+            entries = []
+            base = self.ptr + header.dwHeaderSize
+
+            for i in range(header.dwNumEntries):
+                e = MAHM_SHARED_MEMORY_ENTRY.from_address(base + i * header.dwEntrySize)
+
+                value = e.data
+                entries.append({
+                    "name":  e.szSrcName.decode("utf-8", errors="ignore").rstrip("\x00"),
+                    "units": e.szSrcUnits.decode("utf-8", errors="ignore").rstrip("\x00"),
+                    "value": round(float(value), 2) if self._is_valid(value) else None,
+                    "gpu":   e.dwGpu,
+                    "srcId": e.dwSrcId,
+                })
+
+            return entries
+
+        except ValueError as e:
+            print(f"Memory read error (Afterburner may have restarted): {e}")
+            self.disconnect()
+            return None
+        except Exception as e:
+            print(f"Unexpected error reading Afterburner memory: {e}")
+            self.disconnect()
+            return None
+
+# --- WebSocket Server ---
+
+CLIENTS = set()
+reader = AfterburnerReader()
+
+async def client_handler(websocket):
+    CLIENTS.add(websocket)
+    print(f"Client connected: {websocket.remote_address} | Total clients: {len(CLIENTS)}")
+    try:
+        await websocket.wait_closed()
+    finally:
+        CLIENTS.remove(websocket)
+        print(f"Client disconnected. Total clients: {len(CLIENTS)}")
+
+async def data_loop():
+    while True:
+        try:
+            if CLIENTS:
+                data = reader.get_data()
+                if data is not None:
+                    payload = json.dumps({"sensors": data})
+                else:
+                    payload = json.dumps({"error": "MSI Afterburner not found. Is it running?"})
+                
+                # Send to all connected clients
+                for client in list(CLIENTS):
+                    try:
+                        await client.send(payload)
+                    except websockets.exceptions.ConnectionClosed:
+                        pass
+                        
+            await asyncio.sleep(1)
+        except Exception as e:
+            print(f"Error in data loop: {e}")
+            await asyncio.sleep(2)
+
+def set_low_priority():
+    try:
+        # 0x00004000 is BELOW_NORMAL_PRIORITY_CLASS
+        process = kernel32.GetCurrentProcess()
+        kernel32.SetPriorityClass(process, 0x00004000)
+        print("Process priority set to BELOW_NORMAL to reduce game stutters.")
+    except Exception as e:
+        print(f"Could not set process priority: {e}")
+
+async def main():
+    set_low_priority()
+    print("Starting MSI Afterburner WebSocket Server on ws://localhost:8765...")
+    print("Make sure MSI Afterburner is running (OSD can be off).")
+    
+    try:
+        async with websockets.serve(client_handler, "localhost", 8765):
+            await data_loop()
+    finally:
+        reader.disconnect()
+
+if __name__ == "__main__":
+    asyncio.run(main())
