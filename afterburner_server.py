@@ -1,4 +1,6 @@
+import os
 import ctypes
+import multiprocessing
 from ctypes import wintypes
 import json
 import asyncio
@@ -272,17 +274,35 @@ async def data_loop():
             print(f"Error in data loop: {e}")
             await asyncio.sleep(2)
 
-def set_low_priority():
+def optimize_process_impact():
+    """Sets BELOW_NORMAL priority and disables Core 0 usage natively on Windows."""
+    if os.name != 'nt':
+        return
+
     try:
-        # 0x00004000 is BELOW_NORMAL_PRIORITY_CLASS
-        process = kernel32.GetCurrentProcess()
-        kernel32.SetPriorityClass(process, 0x00004000)
-        print("Process priority set to BELOW_NORMAL to reduce game stutters.")
+        kernel32 = ctypes.windll.kernel32
+        process_handle = kernel32.GetCurrentProcess()
+        
+        # 1. Set to BELOW_NORMAL priority (0x00004000)
+        BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+        kernel32.SetPriorityClass(process_handle, BELOW_NORMAL_PRIORITY_CLASS)
+        
+        # 2. Prevent Core 0 usage (CPU Affinity Bitmask)
+        core_count = multiprocessing.cpu_count()
+        if core_count > 1:
+            # Create a bitmask enabling all available cores
+            affinity_mask = (1 << core_count) - 1
+            # Disable Core 0 (Bit 0)
+            affinity_mask &= ~1
+            
+            kernel32.SetProcessAffinityMask(process_handle, affinity_mask)
+            
+        print("Hardware optimizations applied: BELOW_NORMAL priority & Core 0 disabled.")
     except Exception as e:
-        print(f"Could not set process priority: {e}")
+        print(f"Notice: Could not set process optimization: {e}")
 
 async def main():
-    set_low_priority()
+    optimize_process_impact()
     print("Starting MSI Afterburner WebSocket Server on ws://localhost:8765...")
     print("Make sure MSI Afterburner is running (OSD can be off).")
     
