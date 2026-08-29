@@ -157,36 +157,41 @@ class AfterburnerReader:
     FILE_MAP_READ = 0x0004
 
     def __init__(self):
-        self.handle = None
-        self.ptr    = None
+        self.handle        = None
+        self.ptr           = None
+        self._was_connected = False  # Track state to suppress repeated messages
 
     def connect(self):
         try:
             self.handle = kernel32.OpenFileMappingW(self.FILE_MAP_READ, False, self.SHM_NAME)
             if not self.handle:
-                print("MSI Afterburner shared memory not found. Is Afterburner running?")
+                if self._was_connected:
+                    # Only warn once when Afterburner disappears
+                    print("[Afterburner] Shared memory lost. Is MSI Afterburner still running?")
+                    self._was_connected = False
                 return False
 
             self.ptr = kernel32.MapViewOfFile(self.handle, self.FILE_MAP_READ, 0, 0, 0)
             if not self.ptr:
-                print(f"MapViewOfFile failed. Error: {ctypes.GetLastError()}")
+                print(f"[Afterburner] MapViewOfFile failed. Error: {ctypes.GetLastError()}")
                 kernel32.CloseHandle(self.handle)
                 self.handle = None
                 return False
 
             header = MAHM_SHARED_MEMORY_HEADER.from_address(self.ptr)
             if header.dwSignature != MAHM_SIGNATURE:
-                print(f"Invalid MAHM signature: {hex(header.dwSignature)}. Expected {hex(MAHM_SIGNATURE)}.")
+                print(f"[Afterburner] Invalid MAHM signature: {hex(header.dwSignature)}. Expected {hex(MAHM_SIGNATURE)}.")
                 self.disconnect()
                 return False
 
             v_major = header.dwVersion >> 16
             v_minor = header.dwVersion & 0xFFFF
-            print(f"Connected to MSI Afterburner shared memory v{v_major}.{v_minor}")
+            print(f"[Afterburner] Connected to shared memory v{v_major}.{v_minor}")
             print(f"  Entries: {header.dwNumEntries}  |  Entry size: {header.dwEntrySize} bytes")
+            self._was_connected = True
             return True
         except Exception as e:
-            print(f"Error connecting to Afterburner: {e}")
+            print(f"[Afterburner] Error connecting: {e}")
             self.disconnect()
             return False
 
