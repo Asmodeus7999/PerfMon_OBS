@@ -19,7 +19,7 @@ a = Analysis(
     ['afterburner_server.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('overlay', 'overlay')],
     hiddenimports=[
         # websockets pulls in some submodules dynamically that PyInstaller's
         # static analysis can miss - list them explicitly so the frozen build

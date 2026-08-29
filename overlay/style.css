@@ -1,233 +1,180 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-    margin: 0;
-    padding: 0;
-    /* Transparent background for OBS */
     background-color: transparent;
     color: white;
     font-family: 'Inter', sans-serif;
     overflow: hidden;
 }
 
-.widget-wrapper {
-    padding: 20px;
-    display: inline-flex;
-    flex-direction: row;
-    align-items: stretch;
-    gap: 10px;
-}
-
-.widget {
-    background: rgba(15, 15, 20, 0.85);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
-    padding: 16px 24px;
+/* ── 420×420 OSD Square ──────────────────────────────────── */
+.osd-root {
+    width: 420px;
+    height: 420px;
+    background: rgba(10, 10, 18, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 18px;
+    padding: 14px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-    width: max-content;
+    gap: 8px;
+    box-shadow:
+        0 16px 60px rgba(0, 0, 0, 0.85),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
-.row {
+/* ── Metric Card ─────────────────────────────────────────── */
+.card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+}
+
+.card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--card-accent, rgba(255,255,255,0.15)), transparent);
+}
+
+/* Themes based on hardware vendor */
+.theme-intel {
+    --card-accent: rgba(0, 162, 255, 0.5);
+    --theme-main: #00a2ff;
+}
+.theme-amd {
+    --card-accent: rgba(255, 60, 60, 0.5);
+    --theme-main: #ff3c3c;
+}
+.theme-nvidia {
+    --card-accent: rgba(118, 185, 0, 0.5);
+    --theme-main: #76b900;
+}
+.theme-default {
+    --card-accent: rgba(150, 150, 150, 0.5);
+    --theme-main: #969696;
+}
+
+.card-ram { --card-accent: rgba(179, 102, 255, 0.5); }
+
+/* ── Card Header ─────────────────────────────────────────── */
+.card-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 30px;
-}
-
-.label-group {
-    display: flex;
-    flex-direction: column;
-    min-width: 80px;
-}
-
-.label-title {
-    font-size: 16px;
-    font-weight: 800;
-    letter-spacing: 0.5px;
-    line-height: 1.2;
-}
-
-.label-subtitle {
-    font-size: 10px;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.5);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
-
-.cpu-color {
-    color: #00e5ff;
-    text-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
-}
-
-.gpu-color {
-    color: #ff3333;
-    text-shadow: 0 0 10px rgba(255, 51, 51, 0.4);
-}
-
-.ram-color {
-    color: #b366ff;
-    text-shadow: 0 0 10px rgba(179, 102, 255, 0.4);
-}
-
-.stats-group {
-    display: flex;
     gap: 8px;
 }
 
-.stat-box {
-    background: rgba(0, 0, 0, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
-    padding: 6px 10px;
-    display: flex;
-    align-items: baseline;
-    justify-content: flex-end;
-    gap: 3px;
-    box-sizing: border-box;
-    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+.card-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
     flex-shrink: 0;
 }
+.themed-dot { background: var(--theme-main); box-shadow: 0 0 8px var(--theme-main); }
+.ram-dot { background: #b366ff; box-shadow: 0 0 8px rgba(179, 102, 255, 0.9); }
 
-/* Temp: 2 digits + °C */
-.stat-temp {
-    width: 72px;
+.card-name {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+}
+.themed-color { color: var(--theme-main); text-shadow: 0 0 10px var(--card-accent); }
+.ram-color { color: #b366ff; text-shadow: 0 0 10px rgba(179, 102, 255, 0.5); }
+
+.card-subtitle {
+    font-size: 9px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.28);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    margin-left: auto;
 }
 
-/* Usage: 3 digits + % */
-.stat-usage {
-    width: 66px;
+/* ── Stats Row: flex-based for fixed-size boxes ──────────── */
+.stats-row {
+    display: flex;
+    flex-direction: row;
+    gap: 6px;
+    flex: 1;
+    align-items: stretch;
 }
 
-/* Power: 2 digits + W */
-.stat-power {
-    width: 75px;
-}
-
-/* Clock: 4 digits + MHz */
-.stat-clock {
-    width: 108px;
-}
-
-/* Memory: 4 digits + MB RAM/VRAM */
-.stat-memory {
-    width: 140px;
-}
-
-/* ── FPS side panel ─────────────────────────────────────── */
-.fps-panel {
-    background: rgba(15, 15, 20, 0.85);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 204, 0, 0.15);
-    border-radius: 16px;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-    padding: 16px 20px;
+/* ── Stat Box ────────────────────────────────────────────── */
+.stat-box {
+    background: rgba(0, 0, 0, 0.38);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 9px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 10px;
-    min-width: 100px;
-}
-
-.fps-panel-idle {
-    font-size: 28px;
-    font-weight: 800;
-    color: rgba(255, 255, 255, 0.2);
-}
-
-.fps-main {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
     gap: 2px;
+    padding: 6px 4px;
+    flex: 1;
 }
 
-.fps-number {
-    font-size: 42px;
-    font-weight: 800;
-    line-height: 1;
-    color: #ffcc00;
-    text-shadow: 0 0 20px rgba(255, 204, 0, 0.6), 0 0 40px rgba(255, 204, 0, 0.2);
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -1px;
-}
-
-.fps-unit {
-    font-size: 11px;
-    font-weight: 700;
-    color: rgba(255, 204, 0, 0.7);
-    text-transform: uppercase;
-    letter-spacing: 2px;
-}
-
-.fps-divider {
-    width: 40px;
-    height: 1px;
-    background: rgba(255, 255, 255, 0.1);
-}
-
-.ftime-row {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-}
-
-.ftime-number {
-    font-size: 18px;
-    font-weight: 800;
-    color: rgba(255, 255, 255, 0.85);
-    font-variant-numeric: tabular-nums;
-}
-
-.ftime-unit {
-    font-size: 10px;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.4);
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-}
+/* Min widths ensure values never get squished below digit count */
+.sw-2d { min-width: 54px; }
+.sw-3d { min-width: 64px; }
+.sw-4d { min-width: 76px; }
+.sw-5d { min-width: 88px; }
 
 .stat-val {
-    font-size: 16px;
+    font-size: 20px;
     font-weight: 800;
     color: #ffffff;
     font-variant-numeric: tabular-nums;
+    line-height: 1;
+    letter-spacing: -0.5px;
 }
 
 .stat-unit {
-    font-size: 11px;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.6);
+    font-size: 9px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.45);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
+.stat-label {
+    font-size: 8px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.22);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+}
+
+/* ── Loading / error ─────────────────────────────────────── */
 .loading {
     display: flex;
     align-items: center;
     gap: 10px;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgba(255, 255, 255, 0.5);
     font-weight: 600;
-    font-size: 14px;
+    font-size: 12px;
 }
 
 .spinner {
-    width: 16px;
-    height: 16px;
-    border: 2px solid rgba(255, 255, 255, 0.2);
+    width: 13px;
+    height: 13px;
+    border: 2px solid rgba(255, 255, 255, 0.12);
     border-top-color: #00e5ff;
     border-radius: 50%;
     animation: spin 1s linear infinite;
+    flex-shrink: 0;
 }
 
 @keyframes spin {
-    to {
-        transform: rotate(360deg);
-    }
+    to { transform: rotate(360deg); }
 }

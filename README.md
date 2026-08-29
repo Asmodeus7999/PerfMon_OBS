@@ -4,21 +4,29 @@ A sleek, real-time performance monitoring overlay designed for OBS Studio. Built
 
 ## Features
 * **Direct Shared Memory Access:** Uses Windows API (`ctypes`) to read local sensor data from MSI Afterburner and RTSS without requiring external APIs.
+* **Dynamic Hardware Detection:** Automatically fetches your exact CPU and GPU names directly from Windows and Afterburner.
+* **Auto-Theming UI:** The overlay intelligently color-codes the UI based on your hardware vendor (Intel = Blue, AMD = Red, NVIDIA = Green).
 * **OBS-Ready UI:** Features a transparent background, glassmorphism blur effects, and dynamic data binding perfect for a Browser Source overlay.
-* **Zero-Impact Backend:** The Python WebSocket server automatically runs at `BELOW_NORMAL` process priority to ensure it never causes game stutters.
+* **Zero-Impact Backend:** The Python WebSocket server automatically runs at `BELOW_NORMAL` process priority and disables Core 0 usage to ensure it never causes game stutters.
 * **Comprehensive Metrics:** Tracks CPU/GPU temperatures, utilization, power draw, clock speeds, system RAM, VRAM, Framerate (FPS), and Frametime (ms).
 
 ## Requirements
 To use this overlay, you must have the following installed and running on your Windows machine:
-1. **Python 3.7+**
-2. **MSI Afterburner** (Must be actively running in the background for hardware stats)
-3. **RTSS (RivaTuner Statistics Server)** (Must be actively running for FPS and Frametime stats)
+1. **MSI Afterburner** (Must be actively running in the background for hardware stats)
+2. **RTSS (RivaTuner Statistics Server)** (Optional: Must be actively running for FPS and Frametime stats)
 
 ## Installation & Setup
 
+### Option 1: Using the Release (No Python Required)
+1. Download the latest `PerfMon_Release.zip` from the Releases page.
+2. Extract the folder anywhere on your PC.
+3. Run `PerfMonServer.exe` to start the backend server.
+4. In OBS, add a **Browser Source**, check **"Local file"**, and point it to `overlay/index.html` inside the extracted folder. Set width/height to your preference.
+
+### Option 2: Running from Source
 1. **Clone the repository:**
     ```bash
-    git clone [https://github.com/yourusername/perfmon-obs-overlay.git](https://github.com/yourusername/perfmon-obs-overlay.git)
+    git clone https://github.com/yourusername/perfmon-obs-overlay.git
     cd perfmon-obs-overlay
     ```
 
@@ -29,23 +37,22 @@ To use this overlay, you must have the following installed and running on your W
     ```
 
 3. **Start the WebSocket Server:**
-    Double-click the `Start.bat` file, or run the script manually from your terminal:
+    Run the script manually from your terminal:
     ```bash
     python afterburner_server.py
     ```
-    The server will start running on `ws://localhost:8765`.
 
 4. **Add to OBS Studio:**
     * Add a new **Browser Source** in your OBS scene.
     * Check the **"Local file"** box.
     * Click **Browse** and select the `index.html` file located inside the `overlay/` folder.
-    * Set your desired Width and Height (e.g., Width: 700, Height: 210).
+    * Set your desired Width and Height (e.g., Width: 420, Height: 420).
     * Leave the background transparent.
 
-## Customization
-By default, the overlay uses text labels for the CPU and GPU to look clean on stream. If you want to change the hardware names to match your specific rig:
-1. Open `overlay/script.js` in any text editor.
-2. Locate the HTML injection block (around line 60).
-3. Change `"i5-4690"` and `"RX 580"` to your actual CPU and GPU names, also other parameter you can change the text there.
-4. You can change the color of specs text in `style.css` file (arround line 63).
-5. Save the file and refresh your OBS Browser Source.
+## Building the Release
+If you want to package the project into a standalone executable:
+```bash
+pip install pyinstaller
+pyinstaller server.spec --clean --noconfirm
+```
+This will generate the built server and include the `overlay/` folder automatically in `dist/PerfMonServer/`. You can zip this folder to distribute it!

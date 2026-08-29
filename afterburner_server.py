@@ -1,6 +1,7 @@
 import os
 import ctypes
 import multiprocessing
+import winreg
 from ctypes import wintypes
 import json
 import asyncio
@@ -150,6 +151,70 @@ class MAHM_SHARED_MEMORY_ENTRY(ctypes.Structure):
         ("dwSrcId",              ctypes.c_uint32),            # sensor type ID constant
     ]
 
+# --- Windows system info helpers ---
+# Note: MAHM GPU entries are read as raw bytes (see get_data) because
+# Afterburner's dwGpuEntrySize may differ from a fixed ctypes struct size.
+
+def _get_cpu_name() -> str:
+    """Read the CPU brand string from the Windows registry."""
+    try:
+        key = winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"HARDWARE\DESCRIPTION\System\CentralProcessor\0"
+        )
+        name, _ = winreg.QueryValueEx(key, "ProcessorNameString")
+        winreg.CloseKey(key)
+        # Collapse extra whitespace (some OEMs pad the string)
+        return " ".join(name.split())
+    except Exception:
+        return "CPU"
+
+def _get_total_ram_gb() -> float:
+    """Return total physical RAM in GB via GlobalMemoryStatusEx."""
+    class MEMORYSTATUSEX(ctypes.Structure):
+        _fields_ = [
+            ("dwLength",                ctypes.c_ulong),
+            ("dwMemoryLoad",            ctypes.c_ulong),
+            ("ullTotalPhys",            ctypes.c_ulonglong),
+            ("ullAvailPhys",            ctypes.c_ulonglong),
+            ("ullTotalPageFile",        ctypes.c_ulonglong),
+            ("ullAvailPageFile",        ctypes.c_ulonglong),
+            ("ullTotalVirtual",         ctypes.c_ulonglong),
+            ("ullAvailVirtual",         ctypes.c_ulonglong),
+            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+        ]
+    stat = MEMORYSTATUSEX()
+    stat.dwLength = ctypes.sizeof(stat)
+    ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+    return stat.ullTotalPhys / (1024 ** 3)
+
+def _get_dedicated_vram_gb(adapter_index: int = 0) -> float | None:
+    """Read dedicated VRAM from the Windows display adapter registry key.
+
+    HKLM\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-...}\\000x
+    HardwareInformation.MemorySize  (QWORD, bytes)  → dedicated VRAM only.
+    This is more reliable than WMI AdapterRAM (uint32 overflow) or MAHM
+    dwMemAmount (zero on AMD).
+    """
+    import struct
+    DISPLAY_CLASS = r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
+    try:
+        key = winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            f"{DISPLAY_CLASS}\\{adapter_index:04d}"
+        )
+        raw, reg_type = winreg.QueryValueEx(key, "HardwareInformation.MemorySize")
+        winreg.CloseKey(key)
+        # The value is a REG_BINARY (8-byte little-endian QWORD) or REG_QWORD
+        if isinstance(raw, bytes):
+            padded = raw.ljust(8, b"\x00")[:8]
+            mem_bytes = struct.unpack("<Q", padded)[0]
+        else:
+            mem_bytes = int(raw)  # REG_QWORD already decoded by winreg
+        return mem_bytes / (1024 ** 3)
+    except Exception:
+        return None
+
 # --- Afterburner Reader ---
 
 class AfterburnerReader:
@@ -208,21 +273,22 @@ class AfterburnerReader:
         return value < FLT_MAX * 0.9 and not math.isnan(value) and not math.isinf(value)
 
     def get_data(self):
+        """Return (sensors_list, gpu_info_list) or (None, None) on failure."""
         if not self.ptr:
             if not self.connect():
-                return None
+                return None, None
         try:
             header = MAHM_SHARED_MEMORY_HEADER.from_address(self.ptr)
             if header.dwSignature != MAHM_SIGNATURE:
                 self.disconnect()
-                return None
+                return None, None
 
+            # --- Sensor entries ---
             entries = []
             base = self.ptr + header.dwHeaderSize
 
             for i in range(header.dwNumEntries):
                 e = MAHM_SHARED_MEMORY_ENTRY.from_address(base + i * header.dwEntrySize)
-
                 value = e.data
                 entries.append({
                     "name":  e.szSrcName.decode("utf-8", errors="ignore").rstrip("\x00"),
@@ -232,16 +298,56 @@ class AfterburnerReader:
                     "srcId": e.dwSrcId,
                 })
 
-            return entries
+            # --- GPU info entries (v2.0+): names from shared memory, VRAM from Windows registry ---
+            # Note: dwMemAmount in the GPU entry block is zero on AMD cards. We use
+            # HardwareInformation.MemorySize from the display adapter registry key instead,
+            # which always contains the dedicated (physical) VRAM in bytes.
+
+            gpu_infos = []
+            if header.dwNumGpuEntries and header.dwGpuEntrySize:
+                gpu_base = self.ptr + header.dwHeaderSize + header.dwNumEntries * header.dwEntrySize
+                entry_sz  = header.dwGpuEntrySize
+                OFF_DEVICE = MAX_PATH * 2   # 520
+                OFF_FAMILY = MAX_PATH * 1   # 260
+
+                for i in range(header.dwNumGpuEntries):
+                    entry_addr = gpu_base + i * entry_sz
+                    raw        = (ctypes.c_char * entry_sz).from_address(entry_addr)
+                    raw_bytes  = bytes(raw)
+
+                    def _str(offset, _rb=raw_bytes):
+                        chunk = _rb[offset: offset + MAX_PATH]
+                        return chunk.split(b"\x00", 1)[0].decode("utf-8", errors="ignore")
+
+                    device = _str(OFF_DEVICE)
+                    family = _str(OFF_FAMILY)
+
+                    # Total VRAM: read dedicated VRAM from Windows display adapter registry.
+                    # This avoids MAHM's dwMemAmount (zero on AMD) and sensor maxLimit
+                    # (which may include shared memory on some systems).
+                    vram_raw = _get_dedicated_vram_gb(i)
+                    vram_gb  = round(vram_raw, 1) if vram_raw else None
+
+                    gpu_infos.append({
+                        "index":   i,
+                        "device":  device,
+                        "family":  family,
+                        "vram_gb": vram_gb,
+                    })
+
+            return entries, gpu_infos
 
         except ValueError as e:
             print(f"Memory read error (Afterburner may have restarted): {e}")
             self.disconnect()
-            return None
+            global _system_info_cache
+            _system_info_cache = None  # Force refresh on next connect
+            return None, None
         except Exception as e:
             print(f"Unexpected error reading Afterburner memory: {e}")
             self.disconnect()
-            return None
+            _system_info_cache = None
+            return None, None
 
 # --- WebSocket Server ---
 
@@ -257,23 +363,55 @@ async def client_handler(websocket):
         CLIENTS.remove(websocket)
         print(f"Client disconnected. Total clients: {len(CLIENTS)}")
 
+# Cache system info so we don't re-read it every second
+_system_info_cache: dict | None = None
+
+def _build_system_info(gpu_infos: list) -> dict:
+    """Assemble static hardware info from OS APIs + Afterburner GPU entries.
+    Defers caching until all GPU VRAM values are available."""
+    global _system_info_cache
+    if _system_info_cache is not None:
+        return _system_info_cache
+
+    # Don't cache yet if any GPU still has no VRAM reading
+    if gpu_infos and any(g["vram_gb"] is None for g in gpu_infos):
+        return {
+            "cpu_name": _get_cpu_name(),
+            "ram_gb":   round(_get_total_ram_gb()),
+            "gpus":     gpu_infos,
+        }
+
+    cpu_name   = _get_cpu_name()
+    ram_gb_int = round(_get_total_ram_gb())
+
+    _system_info_cache = {
+        "cpu_name":  cpu_name,
+        "ram_gb":    ram_gb_int,
+        "gpus":      gpu_infos,
+    }
+    print(f"[SystemInfo] CPU: {cpu_name}  |  RAM: {ram_gb_int} GB")
+    for g in gpu_infos:
+        print(f"[SystemInfo] GPU[{g['index']}]: {g['device']}  |  VRAM: {g['vram_gb']} GB")
+    return _system_info_cache
+
 async def data_loop():
     while True:
         try:
             if CLIENTS:
-                data = reader.get_data()
-                if data is not None:
-                    payload = json.dumps({"sensors": data})
+                sensors, gpu_infos = reader.get_data()
+                if sensors is not None:
+                    sys_info = _build_system_info(gpu_infos)
+                    payload  = json.dumps({"sensors": sensors, "system_info": sys_info})
                 else:
                     payload = json.dumps({"error": "MSI Afterburner not found. Is it running?"})
-                
+
                 # Send to all connected clients
                 for client in list(CLIENTS):
                     try:
                         await client.send(payload)
                     except websockets.exceptions.ConnectionClosed:
                         pass
-                        
+
             await asyncio.sleep(1)
         except Exception as e:
             print(f"Error in data loop: {e}")

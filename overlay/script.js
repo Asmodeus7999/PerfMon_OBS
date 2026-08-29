@@ -1,25 +1,20 @@
 const ws = new WebSocket('ws://localhost:8765');
 const container = document.getElementById('osd-container');
-const fpsPanel  = document.getElementById('fps-panel');
 
 // Source IDs from MSI Afterburner SDK (MAHMSharedMemory.h)
 const SRC = {
     GPU_TEMPERATURE: 0x00,   // °C
-    CORE_CLOCK: 0x20,   // MHz  — GPU core clock
-    MEMORY_CLOCK: 0x22,   // MHz  — GPU memory clock
-    GPU_USAGE: 0x30,   // %
-    MEMORY_USAGE: 0x31,   // MB   — GPU memory used ("Memory usage" in Afterburner)
-    FB_USAGE: 0x32,   // %    — framebuffer controller usage (percentage, NOT MB)
-    GPU_ABS_POWER: 0x61,   // W    — absolute GPU power
+    CORE_CLOCK:      0x20,   // MHz  — GPU core clock
+    GPU_USAGE:       0x30,   // %
+    MEMORY_USAGE:    0x31,   // MB   — GPU memory used (VRAM)
+    GPU_ABS_POWER:   0x61,   // W
     CPU_TEMPERATURE: 0x80,   // °C
-    CPU_USAGE: 0x90,   // %
-    RAM_USAGE: 0x91,   // % or MB — system RAM
-    CPU_CLOCK: 0xA0,   // MHz
-    CPU_POWER: 0x100,  // W
+    CPU_USAGE:       0x90,   // %
+    RAM_USAGE:       0x91,   // MB or %
+    CPU_CLOCK:       0xA0,   // MHz
+    CPU_POWER:       0x100,  // W
 };
 
-// Find the first entry matching the given srcId.
-// gpuIndex: pass 0 (or any GPU index) to restrict to that GPU, or null for global/any.
 function findBySrcId(data, srcId, gpuIndex = null) {
     return data.find(e => {
         if (e.srcId !== srcId) return false;
@@ -28,23 +23,19 @@ function findBySrcId(data, srcId, gpuIndex = null) {
     }) || null;
 }
 
-// Find a sensor entry by its display name (case-insensitive, partial match OK)
-function findByName(data, name) {
-    const lower = name.toLowerCase();
-    return data.find(e => e.name.toLowerCase().includes(lower)) || null;
-}
-
-function renderStatBox(entry, overrideUnit = null, extraClass = "") {
-    if (!entry || entry.value === null) {
-        return `<div class="stat-box ${extraClass}" style="opacity: 0.2"><span class="stat-val">-</span></div>`;
-    }
-    const displayUnit = overrideUnit !== null ? overrideUnit : entry.units;
+// Render a fixed-size stat box
+// widthClass: 'sw-2d' | 'sw-3d' | 'sw-4d' | 'sw-5d'
+function statBox(entry, unit, label, widthClass) {
+    const v = (entry && entry.value !== null && entry.value !== undefined)
+        ? Math.round(entry.value)
+        : null;
+    const dim = v === null ? ' style="opacity:0.2"' : '';
     return `
-        <div class="stat-box ${extraClass}">
-            <span class="stat-val">${Math.round(entry.value)}</span>
-            <span class="stat-unit">${displayUnit}</span>
-        </div>
-    `;
+        <div class="stat-box ${widthClass}"${dim}>
+            <span class="stat-val">${v !== null ? v : '–'}</span>
+            <span class="stat-unit">${unit}</span>
+            <span class="stat-label">${label}</span>
+        </div>`;
 }
 
 ws.onopen = () => {
@@ -52,125 +43,114 @@ ws.onopen = () => {
         <div class="loading">
             <div class="spinner"></div>
             Connected. Waiting for data...
-        </div>
-    `;
+        </div>`;
 };
 
 ws.onmessage = (event) => {
     const payload = JSON.parse(event.data);
-    const data    = payload.sensors ?? payload;   // back-compat: plain array fallback
+    const data    = payload.sensors ?? payload;
 
     if (payload.error) {
         container.innerHTML = `<div class="loading">${payload.error}</div>`;
         return;
     }
 
-    // Primary GPU index (0 = first GPU, change if you have multiple GPUs)
     const GPU = 0;
 
-    // --- GPU readings ---
-    const gpuTemp = findBySrcId(data, SRC.GPU_TEMPERATURE, GPU);
-    const gpuClock = findBySrcId(data, SRC.CORE_CLOCK, GPU);
+    // --- System Info (hardware names / memory totals) ---
+    const sysInfo  = payload.system_info ?? {};
+    const gpuEntry = (sysInfo.gpus ?? [])[GPU] ?? {};
+
+    const cpuLabel  = sysInfo.cpu_name  ?? 'CPU';
+    const gpuLabel  = gpuEntry.device   ?? 'GPU';
+    const ramTotal  = sysInfo.ram_gb    != null ? `${sysInfo.ram_gb} GB` : '';
+    const vramTotal = gpuEntry.vram_gb  != null ? `${gpuEntry.vram_gb} GB VRAM` : '';
+    const ramSubtitle = [ramTotal, vramTotal].filter(Boolean).join(' · ');
+
+    // Sensors
+    const cpuTemp  = findBySrcId(data, SRC.CPU_TEMPERATURE);
+    const cpuUsage = findBySrcId(data, SRC.CPU_USAGE);
+    const cpuPower = findBySrcId(data, SRC.CPU_POWER);
+    const cpuClock = findBySrcId(data, SRC.CPU_CLOCK);
+
+    const gpuTemp  = findBySrcId(data, SRC.GPU_TEMPERATURE, GPU);
     const gpuUsage = findBySrcId(data, SRC.GPU_USAGE, GPU);
     const gpuPower = findBySrcId(data, SRC.GPU_ABS_POWER, GPU);
-    const vramUsed = findBySrcId(data, SRC.MEMORY_USAGE, GPU);  // "Memory usage" in MB
+    const gpuClock = findBySrcId(data, SRC.CORE_CLOCK, GPU);
 
-    // --- CPU / system readings (global, gpu = 0xFFFFFFFF) ---
-    const cpuTemp = findBySrcId(data, SRC.CPU_TEMPERATURE);
-    const cpuUsage = findBySrcId(data, SRC.CPU_USAGE);
-    const cpuClock = findBySrcId(data, SRC.CPU_CLOCK);
-    const cpuPower = findBySrcId(data, SRC.CPU_POWER);
     const ramUsage = findBySrcId(data, SRC.RAM_USAGE);
+    const vramUsed = findBySrcId(data, SRC.MEMORY_USAGE, GPU);
 
-    let html = '';
+    // RAM unit (Afterburner can report % or MB)
+    const ramUnit = ramUsage?.units ?? 'MB';
 
-    // Row 1: CPU
-    html += `
-        <div class="row">
-            <div class="label-group">
-                <span class="label-title cpu-color">i5-4690</span>
-                <span class="label-subtitle">CPU</span>
-            </div>
-            <div class="stats-group">
-                ${renderStatBox(cpuTemp, '°C', 'stat-temp')}
-                ${renderStatBox(cpuUsage, '%', 'stat-usage')}
-                ${renderStatBox(cpuPower, 'W', 'stat-power')}
-                ${renderStatBox(cpuClock, 'MHz', 'stat-clock')}
-            </div>
-        </div>
-    `;
-
-    // Row 2: GPU
-    html += `
-        <div class="row">
-            <div class="label-group">
-                <span class="label-title gpu-color">RX 580</span>
-                <span class="label-subtitle">GPU</span>
-            </div>
-            <div class="stats-group">
-                ${renderStatBox(gpuTemp, '°C', 'stat-temp')}
-                ${renderStatBox(gpuUsage, '%', 'stat-usage')}
-                ${renderStatBox(gpuPower, 'W', 'stat-power')}
-                ${renderStatBox(gpuClock, 'MHz', 'stat-clock')}
-            </div>
-        </div>
-    `;
-
-    // Row 3: Memory (RAM & VRAM)
-    // RAM is shown in whatever unit Afterburner reports (% or MB)
-    const ramLabel = ramUsage ? ramUsage.units : '%';
-    html += `
-        <div class="row">
-            <div class="label-group">
-                <span class="label-title ram-color">MEMORY</span>
-                <span class="label-subtitle">16GB RAM & 4GB VRAM</span>
-            </div>
-            <div class="stats-group">
-                ${renderStatBox(ramUsage, `${ramLabel} RAM`, 'stat-memory')}
-                ${renderStatBox(vramUsed, 'MB VRAM', 'stat-memory')}
-            </div>
-        </div>
-    `;
-
-    container.innerHTML = html;
-
-    // ── FPS side panel ── read directly from Afterburner sensor data
-    const fpsEntry   = findByName(data, 'framerate');
-    const ftimeEntry = findByName(data, 'frametime');
-
-    const fpsVal   = fpsEntry?.value;
-    const ftimeVal = ftimeEntry?.value;
-
-    if (fpsVal !== null && fpsVal !== undefined && fpsVal > 0) {
-        fpsPanel.innerHTML = `
-            <div class="fps-main">
-                <span class="fps-number">${Math.round(fpsVal)}</span>
-                <span class="fps-unit">FPS</span>
-            </div>
-            <div class="fps-divider"></div>
-            <div class="ftime-row">
-                <span class="ftime-number">${ftimeVal !== null && ftimeVal !== undefined ? ftimeVal.toFixed(2) : '--'}</span>
-                <span class="ftime-unit">ms / frame</span>
-            </div>
-        `;
-    } else {
-        fpsPanel.innerHTML = `<div class="fps-panel-idle">—</div>`;
+    function getThemeClass(label) {
+        const l = (label || '').toLowerCase();
+        if (l.includes('intel') || l.includes('arc')) return 'theme-intel';
+        if (l.includes('amd') || l.includes('radeon') || l.includes('ryzen')) return 'theme-amd';
+        if (l.includes('nvidia') || l.includes('geforce') || l.includes('rtx') || l.includes('gtx')) return 'theme-nvidia';
+        return 'theme-default';
     }
-};
 
+    const cpuTheme = getThemeClass(cpuLabel);
+    const gpuTheme = getThemeClass(gpuLabel);
+
+    container.innerHTML = `
+
+        <!-- CPU Card: Temp(3d) · Load(3d) · Power(3d) · Clock(4d) -->
+        <div class="card card-cpu ${cpuTheme}">
+            <div class="card-header">
+                <div class="card-dot themed-dot"></div>
+                <span class="card-name themed-color">CPU</span>
+                <span class="card-subtitle">${cpuLabel}</span>
+            </div>
+            <div class="stats-row">
+                ${statBox(cpuTemp,  '°C',  'Temp',  'sw-3d')}
+                ${statBox(cpuUsage, '%',   'Load',  'sw-3d')}
+                ${statBox(cpuPower, 'W',   'Power', 'sw-3d')}
+                ${statBox(cpuClock, 'MHz', 'Clock', 'sw-4d')}
+            </div>
+        </div>
+
+        <!-- GPU Card: Temp(3d) · Load(3d) · Power(3d) · Clock(4d) -->
+        <div class="card card-gpu ${gpuTheme}">
+            <div class="card-header">
+                <div class="card-dot themed-dot"></div>
+                <span class="card-name themed-color">GPU</span>
+                <span class="card-subtitle">${gpuLabel}</span>
+            </div>
+            <div class="stats-row">
+                ${statBox(gpuTemp,  '°C',  'Temp',  'sw-3d')}
+                ${statBox(gpuUsage, '%',   'Load',  'sw-3d')}
+                ${statBox(gpuPower, 'W',   'Power', 'sw-3d')}
+                ${statBox(gpuClock, 'MHz', 'Clock', 'sw-4d')}
+            </div>
+        </div>
+
+        <!-- RAM Card: RAM Used(5d) · VRAM Used(5d) -->
+        <div class="card card-ram">
+            <div class="card-header">
+                <div class="card-dot ram-dot"></div>
+                <span class="card-name ram-color">RAM</span>
+                <span class="card-subtitle">${ramSubtitle}</span>
+            </div>
+            <div class="stats-row">
+                ${statBox(ramUsage, ramUnit, 'System RAM', 'sw-5d')}
+                ${statBox(vramUsed, 'MB',    'VRAM',       'sw-5d')}
+            </div>
+        </div>
+    `;
+};
 
 ws.onclose = () => {
     container.innerHTML = `
         <div class="loading">
             <div class="spinner"></div>
             Connection lost. Reconnecting...
-        </div>
-    `;
-    setTimeout(() => {
-        location.reload();
-    }, 5000);
+        </div>`;
+    setTimeout(() => location.reload(), 5000);
 };
 
 ws.onerror = (error) => {
-    console.error("WebSocket Error:", error);
+    console.error('WebSocket Error:', error);
 };
