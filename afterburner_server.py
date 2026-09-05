@@ -1,4 +1,7 @@
 import os
+import threading
+import http.server
+import socketserver
 import ctypes
 import multiprocessing
 import winreg
@@ -7,6 +10,7 @@ import json
 import asyncio
 import websockets
 import math
+import re
 
 # --- WinAPI setup ---
 kernel32 = ctypes.windll.kernel32
@@ -164,10 +168,41 @@ def _get_cpu_name() -> str:
         )
         name, _ = winreg.QueryValueEx(key, "ProcessorNameString")
         winreg.CloseKey(key)
+        
+        # Clean up common trademark symbols and clock speed
+        name = name.replace("(R)", "").replace("(r)", "")
+        name = name.replace("(TM)", "").replace("(tm)", "")
+        name = name.replace("CPU", "")
+        # Remove trailing "@ X.XXGHz"
+        name = re.sub(r'@\s*[\d\.]+\s*[Gg][Hh][Zz]', '', name)
+        
         # Collapse extra whitespace (some OEMs pad the string)
         return " ".join(name.split())
     except Exception:
         return "CPU"
+
+def _get_ram_type() -> str:
+    """Read RAM type via PowerShell WMI (SMBIOSMemoryType)."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", "Get-CimInstance Win32_PhysicalMemory | Select-Object -ExpandProperty SMBIOSMemoryType"],
+            capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        if result.stdout:
+            for line in result.stdout.split():
+                if line.strip().isdigit():
+                    code = int(line.strip())
+                    if code == 20: return "DDR"
+                    if code == 21: return "DDR2"
+                    if code == 24: return "DDR3"
+                    if code == 26: return "DDR4"
+                    if code == 34: return "DDR5"
+                    if code == 35: return "LPDDR5"
+                    return f"RAM"
+        return "RAM"
+    except Exception:
+        return "RAM"
 
 def _get_total_ram_gb() -> float:
     """Return total physical RAM in GB via GlobalMemoryStatusEx."""
@@ -225,6 +260,7 @@ class AfterburnerReader:
         self.handle        = None
         self.ptr           = None
         self._was_connected = False  # Track state to suppress repeated messages
+        self._sig_error_shown = False
 
     def connect(self):
         try:
@@ -245,9 +281,13 @@ class AfterburnerReader:
 
             header = MAHM_SHARED_MEMORY_HEADER.from_address(self.ptr)
             if header.dwSignature != MAHM_SIGNATURE:
-                print(f"[Afterburner] Invalid MAHM signature: {hex(header.dwSignature)}. Expected {hex(MAHM_SIGNATURE)}.")
+                if not self._sig_error_shown:
+                    print(f"[Afterburner] Invalid MAHM signature: {hex(header.dwSignature)}. Expected {hex(MAHM_SIGNATURE)}. (Waiting for Afterburner to initialize...)")
+                    self._sig_error_shown = True
                 self.disconnect()
                 return False
+            
+            self._sig_error_shown = False
 
             v_major = header.dwVersion >> 16
             v_minor = header.dwVersion & 0xFFFF
@@ -383,13 +423,15 @@ def _build_system_info(gpu_infos: list) -> dict:
 
     cpu_name   = _get_cpu_name()
     ram_gb_int = round(_get_total_ram_gb())
+    ram_type   = _get_ram_type()
 
     _system_info_cache = {
         "cpu_name":  cpu_name,
         "ram_gb":    ram_gb_int,
+        "ram_type":  ram_type,
         "gpus":      gpu_infos,
     }
-    print(f"[SystemInfo] CPU: {cpu_name}  |  RAM: {ram_gb_int} GB")
+    print(f"[SystemInfo] CPU: {cpu_name}  |  RAM: {ram_gb_int} GB {ram_type}")
     for g in gpu_infos:
         print(f"[SystemInfo] GPU[{g['index']}]: {g['device']}  |  VRAM: {g['vram_gb']} GB")
     return _system_info_cache
@@ -430,22 +472,48 @@ def optimize_process_impact():
         BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
         kernel32.SetPriorityClass(process_handle, BELOW_NORMAL_PRIORITY_CLASS)
         
-        # 2. Prevent Core 0 usage (CPU Affinity Bitmask)
-        core_count = multiprocessing.cpu_count()
-        if core_count > 1:
-            # Create a bitmask enabling all available cores
-            affinity_mask = (1 << core_count) - 1
-            # Disable Core 0 (Bit 0)
-            affinity_mask &= ~1
-            
-            kernel32.SetProcessAffinityMask(process_handle, affinity_mask)
-            
-        print("Hardware optimizations applied: BELOW_NORMAL priority & Core 0 disabled.")
+        print("Hardware optimizations applied: BELOW_NORMAL priority.")
     except Exception as e:
         print(f"Notice: Could not set process optimization: {e}")
 
+def start_http_server(port=8000, directory_name="overlay"):
+    import sys
+    
+    # Handle PyInstaller paths
+    if hasattr(sys, '_MEIPASS'):
+        base_path = sys._MEIPASS
+    else:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        
+    directory = os.path.join(base_path, directory_name)
+    
+    # Fallback to current directory if not found
+    if not os.path.exists(directory):
+        directory = "."
+
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=directory, **kwargs)
+        
+        def log_message(self, format, *args):
+            # Suppress HTTP logging to avoid console spam
+            pass
+
+    socketserver.TCPServer.allow_reuse_address = True
+    try:
+        httpd = socketserver.TCPServer(("", port), Handler)
+        print(f"Starting HTTP Server on http://localhost:{port} (Serving '{directory}' folder)")
+        httpd.serve_forever()
+    except Exception as e:
+        print(f"Failed to start HTTP server on port {port}: {e}")
+
 async def main():
     optimize_process_impact()
+    
+    # Start the HTTP Server in a background thread
+    http_thread = threading.Thread(target=start_http_server, args=(8000, "overlay"), daemon=True)
+    http_thread.start()
+    
     print("Starting MSI Afterburner WebSocket Server on ws://localhost:8765...")
     print("Make sure MSI Afterburner is running (OSD can be off).")
     

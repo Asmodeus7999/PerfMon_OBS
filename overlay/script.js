@@ -32,8 +32,10 @@ function statBox(entry, unit, label, widthClass) {
     const dim = v === null ? ' style="opacity:0.2"' : '';
     return `
         <div class="stat-box ${widthClass}"${dim}>
-            <span class="stat-val">${v !== null ? v : '–'}</span>
-            <span class="stat-unit">${unit}</span>
+            <div class="stat-val-row">
+                <span class="stat-val">${v !== null ? v : '–'}</span>
+                <span class="stat-unit">${unit}</span>
+            </div>
             <span class="stat-label">${label}</span>
         </div>`;
 }
