@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PerfMon OBS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="app-viewport">
+    <!-- Settings button — floating center top -->
+    <button id="settings-btn" title="Settings (Click to toggle, drag to move window)" aria-label="Settings">⚙</button>
+
+    <!-- Settings panel (hidden by default) -->
+    <div id="settings-panel" class="settings-panel hidden" role="dialog" aria-label="Settings">
+      <div class="settings-header" data-tauri-drag-region>
+        <span class="settings-heading" data-tauri-drag-region>Settings</span>
+        <div class="window-controls">
+          <button id="btn-minimize" class="win-btn" title="Minimize" aria-label="Minimize">─</button>
+          <button id="btn-close" class="win-btn win-btn-close" title="Close" aria-label="Close">✕</button>
+        </div>
+      </div>
+      <div class="settings-title">Display</div>
+      <div class="settings-row">
+        <label class="settings-label">
+          <input type="checkbox" id="show-cpu" checked />
+          <span>CPU</span>
+        </label>
+        <label class="settings-label">
+          <input type="checkbox" id="show-gpu" checked />
+          <span>GPU</span>
+        </label>
+        <label class="settings-label">
+          <input type="checkbox" id="show-ram" checked />
+          <span>RAM</span>
+        </label>
+        <label class="settings-label">
+          <input type="checkbox" id="show-fps" checked />
+          <span>FPS</span>
+        </label>
+      </div>
+      <div class="settings-divider"></div>
+      <div class="settings-title">Window</div>
+      <div class="settings-row">
+        <label class="settings-label" title="Keep overlay above all other windows">
+          <input type="checkbox" id="aot-toggle" checked />
+          <span>Always on Top</span>
+        </label>
+        <label class="settings-label" title="Pass mouse clicks to apps beneath (Hold Right-Alt to use mouse)">
+          <input type="checkbox" id="clickthrough-toggle" />
+          <span>Click-Through</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Main overlay content — populated by main.js -->
+    <div id="osd-container"></div>
+
+    <!-- 4 corner resize handles (each edge) -->
+    <div class="corner-resize top-left" data-direction="NorthWest"></div>
+    <div class="corner-resize top-right" data-direction="NorthEast"></div>
+    <div class="corner-resize bottom-left" data-direction="SouthWest"></div>
+    <div class="corner-resize bottom-right" data-direction="SouthEast"></div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

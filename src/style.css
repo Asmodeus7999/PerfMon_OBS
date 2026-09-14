@@ -1,0 +1,546 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   style.css — PerfMon OBS Tauri edition
+   Native Windows title bar (decorations: true).
+   OBS: Window Capture → ✅ Capture Client Area to exclude the title bar.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html,
+body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: 'Inter', sans-serif;
+    color: #fff;
+    background-color: transparent;
+}
+
+body {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    user-select: none;
+}
+
+/* ── App Viewport (Scales 300x490 layout uniformly to match window size) ── */
+#app-viewport {
+    width: 300px;
+    height: 490px;
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: top left;
+    transform: scale(var(--app-scale, 1));
+    display: flex;
+    flex-direction: column;
+}
+
+/* ── Settings button — floating center top ─────────────────────────────── */
+#settings-btn {
+    position: fixed;
+    top: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    background: rgba(18, 18, 26, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 13px;
+    cursor: grab;
+    padding: 3px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    line-height: 1;
+    opacity: 0.2;
+    transition: opacity 0.2s ease, color 0.15s, background 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+    user-select: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+#settings-btn:hover,
+#settings-btn:focus-visible,
+#settings-btn.active {
+    opacity: 1;
+    color: rgba(255, 255, 255, 0.95);
+    background: rgba(30, 30, 42, 0.95);
+    border-color: rgba(255, 255, 255, 0.25);
+    transform: translateX(-50%) scale(1.05);
+}
+
+#settings-btn:active {
+    cursor: grabbing;
+}
+
+/* While Right-Alt is held down during Click-Through, illuminate the widget */
+body.clickthrough-bypassed #settings-btn {
+    opacity: 1;
+    color: #00e5ff;
+    border-color: rgba(0, 229, 255, 0.45);
+    background: rgba(18, 28, 42, 0.95);
+    box-shadow: 0 0 12px rgba(0, 229, 255, 0.3);
+}
+
+body.clickthrough-bypassed .osd-root {
+    border-color: rgba(0, 229, 255, 0.3);
+    transition: border-color 0.15s ease;
+}
+
+/* ── Settings panel (overlay dropdown) ─────────────────────────────────── */
+.settings-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 999;
+    background: rgba(10, 10, 18, 0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
+    border-radius: 14px 14px 0 0;
+    padding: 10px 12px;
+    overflow-y: auto;
+    max-height: 100%;
+    transition: max-height 0.22s ease, padding 0.18s ease, opacity 0.15s ease, transform 0.18s ease;
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.settings-panel::-webkit-scrollbar {
+    width: 3px;
+}
+
+.settings-panel::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+}
+
+.settings-panel.hidden {
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    opacity: 0;
+    transform: translateY(-8px);
+    pointer-events: none;
+}
+
+/* ── Settings panel header with window controls ─────────────────────────── */
+.settings-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.settings-heading {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.window-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.win-btn {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    user-select: none;
+    line-height: 1;
+}
+
+.win-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.35);
+}
+
+.win-btn-close:hover {
+    background: #e81123;
+    color: #fff;
+    border-color: #e81123;
+}
+
+.settings-title {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.3);
+    margin-bottom: 6px;
+}
+
+.settings-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.settings-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.65);
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.12s;
+}
+
+.settings-label:hover {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.settings-label input[type="checkbox"],
+.settings-label input[type="radio"] {
+    accent-color: #00e5ff;
+    width: 13px;
+    height: 13px;
+    cursor: pointer;
+}
+
+.settings-label input[type="checkbox"]:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.settings-label:has(input[type="checkbox"]:disabled) {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.settings-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.06);
+    margin: 6px 0;
+}
+
+
+
+/* ── OSD container: wraps all stat cards ────────────────────────────────── */
+#osd-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* ── Root: dark widget shell ─────────────────────────────────────────────── */
+.osd-root {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    background: rgba(8, 8, 14, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    /* Rounded corners so the widget floats over the (magenta/transparent) bg */
+    border-radius: 14px;
+    overflow: hidden;
+    transition: border-color 0.15s ease;
+    position: relative;
+}
+
+/* ── Corner resize zones (each edge) ────────────────────────────────────── */
+.corner-resize {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    z-index: 998;
+    background: transparent;
+    user-select: none;
+}
+
+.corner-resize.top-left {
+    top: 0;
+    left: 0;
+    cursor: nwse-resize;
+}
+
+.corner-resize.top-right {
+    top: 0;
+    right: 0;
+    cursor: nesw-resize;
+}
+
+.corner-resize.bottom-left {
+    bottom: 0;
+    left: 0;
+    cursor: nesw-resize;
+}
+
+.corner-resize.bottom-right {
+    bottom: 0;
+    right: 0;
+    cursor: nwse-resize;
+}
+
+/* ── Card: each card has a proportional fixed base height ──────────────── */
+.card {
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 8px;
+    position: relative;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.card:last-child,
+.card.last-visible-card {
+    border-bottom: none;
+}
+
+.card-cpu {
+    flex: none;
+    height: 145px;
+}
+
+.card-gpu {
+    flex: none;
+    height: 145px;
+}
+
+/* Top accent bar */
+.card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--card-accent, rgba(255, 255, 255, 0.15)), transparent);
+}
+
+/* ── Themes ──────────────────────────────────────────────────────────────── */
+.theme-intel {
+    --theme-main: #00a2ff;
+    --theme-glow: rgba(0, 162, 255, 0.3);
+    --card-accent: rgba(0, 162, 255, 0.5);
+}
+
+.theme-amd {
+    --theme-main: #ff3c3c;
+    --theme-glow: rgba(255, 60, 60, 0.3);
+    --card-accent: rgba(255, 60, 60, 0.5);
+}
+
+.theme-nvidia {
+    --theme-main: #76b900;
+    --theme-glow: rgba(118, 185, 0, 0.3);
+    --card-accent: rgba(118, 185, 0, 0.5);
+}
+
+.theme-default {
+    --theme-main: #969696;
+    --theme-glow: rgba(150, 150, 150, 0.2);
+    --card-accent: rgba(150, 150, 150, 0.4);
+}
+
+.card-ram {
+    --theme-main: #b366ff;
+    --theme-glow: rgba(179, 102, 255, 0.3);
+    --card-accent: rgba(179, 102, 255, 0.5);
+    flex: none;
+    height: 100px;
+}
+
+.card-fps {
+    --theme-main: #ffcc00;
+    --theme-glow: rgba(255, 204, 0, 0.3);
+    --card-accent: rgba(255, 204, 0, 0.5);
+    flex: none;
+    height: 100px;
+}
+
+
+
+/* Convenience aliases — used in HTML markup for themed dot/color elements */
+.themed-dot {
+    background: var(--theme-main);
+    box-shadow: 0 0 8px var(--theme-main);
+}
+
+.themed-color {
+    color: var(--theme-main);
+    text-shadow: 0 0 10px var(--card-accent);
+}
+
+.ram-dot {
+    background: #b366ff;
+    box-shadow: 0 0 8px #b366ff;
+}
+
+.ram-color {
+    color: #b366ff;
+    text-shadow: 0 0 10px rgba(179, 102, 255, 0.5);
+}
+
+.fps-dot {
+    background: #ffcc00;
+    box-shadow: 0 0 8px #ffcc00;
+}
+
+.fps-color {
+    color: #ffcc00;
+    text-shadow: 0 0 10px rgba(255, 204, 0, 0.5);
+}
+
+/* ── Card header ─────────────────────────────────────────────────────────── */
+.card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    user-select: none;
+}
+
+.card-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--theme-main);
+    box-shadow: 0 0 8px var(--theme-main);
+}
+
+.card-name {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--theme-main);
+    text-shadow: 0 0 10px var(--card-accent);
+}
+
+.card-subtitle {
+    font-size: 12px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.55);
+    letter-spacing: 0.5px;
+    margin-left: auto;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
+/* ── Stats grid ──────────────────────────────────────────────────────────── */
+.stats-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
+    flex: 1;
+}
+
+.card-ram .stats-row,
+.card-fps .stats-row {
+    grid-template-columns: 1fr 1fr;
+}
+
+/* ── Individual stat box ─────────────────────────────────────────────────── */
+.stat-box {
+    background: rgba(0, 0, 0, 0.42);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 9px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 6px 4px;
+    transition: opacity 0.2s;
+}
+
+/* Width classes — unused in grid layout, kept for compat with script.js */
+.sw-2d,
+.sw-3d,
+.sw-4d,
+.sw-5d {
+    min-width: unset;
+}
+
+.stat-val-row {
+    display: flex;
+    align-items: baseline;
+    gap: 2px;
+}
+
+.stat-val {
+    font-size: 20px;
+    font-weight: 800;
+    color: #fff;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    letter-spacing: -0.5px;
+}
+
+.stat-unit {
+    font-size: 10px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.42);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    line-height: 1;
+}
+
+.stat-label {
+    font-size: 8px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.2);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+}
+
+/* ── Loading / error state ───────────────────────────────────────────────── */
+.loading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: rgba(255, 255, 255, 0.45);
+    font-weight: 600;
+    font-size: 12px;
+    padding: 14px 12px;
+    background: rgba(8, 8, 14, 0.97);
+    height: 100%;
+}
+
+.spinner {
+    width: 13px;
+    height: 13px;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    border-top-color: #00e5ff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    flex-shrink: 0;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}

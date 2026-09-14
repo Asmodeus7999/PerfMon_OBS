@@ -1,38 +1,22 @@
-# ── PyInstaller ──────────────────────────────────────────────────────────────
-build/
+# Node / Frontend dependencies & build output
+node_modules/
 dist/
-*.spec.bak
-__pycache__/
-*.py[cod]
-*.pyo
+dist-ssr/
+*.local
 
-# ── Python general ────────────────────────────────────────────────────────────
-*.egg-info/
-*.egg
-.eggs/
-.env
-.venv/
-venv/
-env/
-pip-wheel-metadata/
+# Rust / Tauri
+src-tauri/target/
+target/
+**/*.rs.bk
 
-# ── Virtual environments ──────────────────────────────────────────────────────
-.Python
-pyvenv.cfg
-
-# ── OS junk ───────────────────────────────────────────────────────────────────
+# OS & Temp files
 Thumbs.db
 Desktop.ini
 .DS_Store
+*.log
 
-# ── IDE / Editor ──────────────────────────────────────────────────────────────
+# Editor directories
 .vscode/
 .idea/
 *.suo
 *.user
-
-# ── Logs ──────────────────────────────────────────────────────────────────────
-*.log
-
-# ── Others ────────────────────────────────────────────────────────────────────
-overlay-backup

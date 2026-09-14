@@ -1,0 +1,39 @@
+[package]
+name = "perfmon-obs"
+version = "1.1.0"
+description = "PerfMon OBS - Hardware Monitor Overlay for OBS Studio"
+authors = []
+edition = "2021"
+
+# This is the lib crate name that main.rs calls into. Tauri v2 convention:
+# main.rs is a thin launcher; all logic lives in lib.rs.
+[lib]
+name = "perfmon_obs_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri     = { version = "2", features = [] }
+serde     = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Low-level Windows API (shared memory, WinAPI structs)
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.52", features = [
+    "Win32_System_Memory",             # OpenFileMappingW, MapViewOfFile, UnmapViewOfFile
+    "Win32_Foundation",                # CloseHandle, HANDLE, BOOL
+    "Win32_System_SystemInformation",  # GlobalMemoryStatusEx, MEMORYSTATUSEX
+    "Win32_UI_Input_KeyboardAndMouse", # RegisterHotKey, MOD_CONTROL, etc.
+    "Win32_UI_WindowsAndMessaging",    # GetMessageW, WM_HOTKEY
+] }
+# Safe high-level registry wrappers (CPU name, VRAM size)
+winreg = "0.52"
+
+[profile.release]
+panic        = "abort"    # smaller binary, no panic unwinding machinery
+codegen-units = 1         # better optimisation at link time
+lto          = true
+opt-level    = "s"        # optimise for size
+strip        = true       # strip debug symbols
