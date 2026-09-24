@@ -1,6 +1,6 @@
 [package]
 name = "perfmon-obs"
-version = "1.1.0"
+version = "1.1.1"
 description = "PerfMon OBS - Hardware Monitor Overlay for OBS Studio"
 authors = []
 edition = "2021"

@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -9,6 +10,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" />
   <link rel="stylesheet" href="/src/style.css" />
 </head>
+
 <body>
   <div id="app-viewport">
     <!-- Settings button — floating center top -->
@@ -23,6 +25,21 @@
           <button id="btn-close" class="win-btn win-btn-close" title="Close" aria-label="Close">✕</button>
         </div>
       </div>
+      <div class="settings-title">Theme</div>
+      <div class="settings-row">
+        <select id="theme-select" class="settings-select" aria-label="Theme">
+          <option value="default">Default (vertical)</option>
+          <option value="classic">Classic (horizontal)</option>
+        </select>
+      </div>
+      <div class="settings-divider"></div>
+      <div class="settings-title">Background opacity</div>
+      <div class="settings-row settings-slider-row">
+        <input type="range" id="bg-opacity" class="settings-slider" min="0" max="100" step="5" value="85"
+          aria-label="Background opacity" />
+        <span id="bg-opacity-val" class="settings-slider-val">85%</span>
+      </div>
+      <div class="settings-divider"></div>
       <div class="settings-title">Display</div>
       <div class="settings-row">
         <label class="settings-label">
@@ -46,7 +63,7 @@
       <div class="settings-title">Window</div>
       <div class="settings-row">
         <label class="settings-label" title="Keep overlay above all other windows">
-          <input type="checkbox" id="aot-toggle" checked />
+          <input type="checkbox" id="aot-toggle" />
           <span>Always on Top</span>
         </label>
         <label class="settings-label" title="Pass mouse clicks to apps beneath (Hold Right-Alt to use mouse)">
@@ -68,4 +85,5 @@
 
   <script type="module" src="/src/main.js"></script>
 </body>
+
 </html>

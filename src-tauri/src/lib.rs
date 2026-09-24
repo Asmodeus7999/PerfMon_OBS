@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use tauri::Emitter;
 
 static CLICKTHROUGH_ACTIVE: AtomicBool = AtomicBool::new(false);
+static BASE_WIDTH: AtomicU32 = AtomicU32::new(300);
 static BASE_HEIGHT: AtomicU32 = AtomicU32::new(490);
 
 #[tauri::command]
@@ -24,7 +25,8 @@ fn set_clickthrough_active(active: bool) {
 }
 
 #[tauri::command]
-fn set_base_height(height: u32) {
+fn set_base_size(width: u32, height: u32) {
+    BASE_WIDTH.store(width.max(1), Ordering::Relaxed);
     BASE_HEIGHT.store(height, Ordering::Relaxed);
 }
 
@@ -157,8 +159,9 @@ pub fn run() {
                                     let rect = lparam as *mut RECT;
                                     let width = (*rect).right - (*rect).left;
                                     let height = (*rect).bottom - (*rect).top;
-                                    let base_h = BASE_HEIGHT.load(Ordering::Relaxed).max(60) as f32;
-                                    let ratio: f32 = base_h / 300.0;
+                                    let base_h = BASE_HEIGHT.load(Ordering::Relaxed).max(20) as f32;
+                                    let base_w = BASE_WIDTH.load(Ordering::Relaxed).max(1) as f32;
+                                    let ratio: f32 = base_h / base_w;
 
                                     match wparam as u32 {
                                         8 => { // WMSZ_BOTTOMRIGHT
@@ -211,7 +214,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![set_clickthrough_active, set_base_height])
+        .invoke_handler(tauri::generate_handler![set_clickthrough_active, set_base_size])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

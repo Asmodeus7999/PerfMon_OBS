@@ -1,0 +1,294 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Theme picker + short-name label (hidden in the default theme)
+   ═══════════════════════════════════════════════════════════════════════════ */
+.card-short {
+    display: none;
+}
+
+.settings-select {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.8);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 6px;
+    cursor: pointer;
+    outline: none;
+}
+
+.settings-select option {
+    background: #12121a;
+    color: #fff;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CLASSIC THEME — MSI Afterburner-style horizontal rows
+   Everything is scoped to body[data-theme="classic"]; the default theme is
+   untouched. Colors sampled from the Afterburner default OSD.
+   ═══════════════════════════════════════════════════════════════════════════ */
+body[data-theme="classic"] {
+    --classic-bg: rgba(0, 0, 0, var(--bg-alpha, 0.55));
+    --classic-value: #ff8000;
+    /* orange numbers */
+    --classic-unit: #d8d8d8;
+    /* small gray units */
+    --classic-ram: #0080c0;
+    /* RAM label (blue) */
+    --classic-vram: #008040;
+    /* VRAM label (green) */
+    --classic-fps: #c08080;
+    /* FPS label (pink) */
+    --classic-col1: 72px;
+    /* first value column (load / RAM / FPS) */
+    --classic-col2: 84px;
+    /* second value column (clock / frametime) */
+    --classic-radius: 14px;
+    /* background corner radius */
+    font-family: 'Bahnschrift', 'Arial Narrow', 'Inter', sans-serif;
+}
+
+/* Widget shell: flat, no border / radius / blur */
+body[data-theme="classic"] .osd-root {
+    background: var(--classic-bg);
+    border: none;
+    border-radius: var(--classic-radius);
+    padding: 3px 0;
+}
+
+/* One 26px row per card */
+body[data-theme="classic"] .card,
+body[data-theme="classic"] .card-cpu,
+body[data-theme="classic"] .card-gpu,
+body[data-theme="classic"] .card-ram,
+body[data-theme="classic"] .card-fps {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    height: 26px;
+    padding: 0 12px;
+    border: none;
+    background: none;
+}
+
+body[data-theme="classic"] .card::before {
+    display: none;
+}
+
+/* Row label column */
+body[data-theme="classic"] .card-header {
+    width: 62px;
+    flex: none;
+    gap: 0;
+}
+
+body[data-theme="classic"] .card-dot,
+body[data-theme="classic"] .card-subtitle {
+    display: none;
+}
+
+body[data-theme="classic"] .card-name,
+body[data-theme="classic"] .card-short,
+body[data-theme="classic"] .stat-label {
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1;
+    text-shadow: 1px 1px 0 #000, 0 0 2px #000;
+    white-space: nowrap;
+}
+
+/* CPU / GPU: shortened name in the vendor brand color (from .theme-intel / -amd / -nvidia) */
+body[data-theme="classic"] .card-cpu .card-name,
+body[data-theme="classic"] .card-gpu .card-name {
+    display: none;
+}
+
+body[data-theme="classic"] .card-short {
+    display: block;
+    color: var(--theme-main);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* RAM / FPS rows use the regular card-name as their label */
+body[data-theme="classic"] .card-ram .card-name {
+    color: var(--classic-ram);
+}
+
+body[data-theme="classic"] .card-fps .card-name {
+    color: var(--classic-fps);
+}
+
+/* Value columns */
+body[data-theme="classic"] .stats-row,
+body[data-theme="classic"] .card-ram .stats-row,
+body[data-theme="classic"] .card-fps .stats-row {
+    flex: 1;
+    gap: 6px;
+    align-items: center;
+}
+
+body[data-theme="classic"] .card-cpu .stats-row,
+body[data-theme="classic"] .card-gpu .stats-row,
+body[data-theme="classic"] .card-ram .stats-row {
+    grid-template-columns: var(--classic-col1) var(--classic-col2) 1fr 1fr;
+}
+
+/* FPS + frametime share one row */
+body[data-theme="classic"] .card-fps .stats-row {
+    grid-template-columns: var(--classic-col1) 1fr;
+}
+
+/* Afterburner metric order: load, clock, power, temp */
+body[data-theme="classic"] .stat-box[id$="-load"] {
+    order: 1;
+}
+
+body[data-theme="classic"] .stat-box[id$="-clock"] {
+    order: 2;
+}
+
+body[data-theme="classic"] .stat-box[id$="-power"] {
+    order: 3;
+}
+
+body[data-theme="classic"] .stat-box[id$="-temp"] {
+    order: 4;
+}
+
+/* Stat boxes become plain inline text */
+body[data-theme="classic"] .stat-box {
+    background: none;
+    border: none;
+    border-radius: 0;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    padding: 0;
+}
+
+body[data-theme="classic"] .stat-val-row {
+    align-items: flex-start;
+    gap: 2px;
+}
+
+body[data-theme="classic"] .stat-val {
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: 0;
+    color: var(--classic-value);
+    text-shadow: 1px 1px 0 #000, 0 0 2px #000;
+}
+
+body[data-theme="classic"] .stat-unit {
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--classic-unit);
+    margin-top: 1px;
+    text-shadow: 1px 1px 0 #000;
+}
+
+/* FPS + frametime numbers are white */
+body[data-theme="classic"] #box-fps .stat-val,
+body[data-theme="classic"] #box-ftime .stat-val {
+    color: #fff;
+}
+
+/* Inline labels: only VRAM keeps one (RAM / FPS use the row label instead) */
+body[data-theme="classic"] .stat-box .stat-label {
+    display: none;
+}
+
+/* RAM + VRAM share one row: the VRAM label sits at the start of the clock
+   column and its value lines up with the wattage column. */
+body[data-theme="classic"] #box-vram-usage {
+    grid-column: 2 / span 2;
+}
+
+body[data-theme="classic"] #box-vram-usage .stat-label {
+    display: block;
+    order: -1;
+    flex: none;
+    width: var(--classic-col2);
+    /* value then starts exactly at the wattage column */
+    text-transform: none;
+    color: var(--classic-vram);
+}
+
+/* Gear button — Classic position: right edge, vertically centered, 12px from the
+   right (= row padding). Size, padding and the hover grow are the same as the
+   default theme. Switching themes does not slide the button: it fades out, the
+   theme swaps, then it fades back in at its new position (see main.js). */
+body[data-theme="classic"] #settings-btn {
+    left: auto;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+body[data-theme="classic"] #settings-btn:hover,
+body[data-theme="classic"] #settings-btn:focus-visible,
+body[data-theme="classic"] #settings-btn.active {
+    left: auto;
+    transform: translateY(-50%) scale(1.05);
+}
+
+/* Fade-out state used while the theme is being switched (uses the button's own
+   0.2s opacity transition) */
+body.gear-hidden #settings-btn {
+    opacity: 0 !important;
+    pointer-events: none;
+}
+
+/* While the panel is open the window grows to fit it (main.js), so the panel becomes
+   a full rounded rectangle instead of a dropdown with a square bottom. */
+body[data-theme="classic"] .settings-panel {
+    border-radius: var(--classic-radius);
+}
+
+/* While the window is expanded for the panel, keep the settings button pinned at the
+   vertical center of the normal (collapsed) widget instead of the taller window. */
+body.settings-expanded[data-theme="classic"] #settings-btn {
+    top: calc(var(--content-h, 110px) / 2);
+}
+
+/* Hide the panel's own scrollbar while the window is still animating up to its
+   expanded height — it briefly overflows mid-resize and the scrollbar flashes. */
+body.settings-expanding[data-theme="classic"] .settings-panel {
+    overflow-y: hidden;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Background opacity — default theme shell follows --bg-alpha (85% = original)
+   ═══════════════════════════════════════════════════════════════════════════ */
+body[data-theme="default"] .osd-root {
+    background: rgba(8, 8, 14, var(--bg-alpha, 0.85));
+}
+
+.settings-slider-row {
+    align-items: center;
+    gap: 8px;
+    flex-wrap: nowrap;
+}
+
+.settings-slider {
+    flex: 1;
+    min-width: 0;
+    accent-color: #00e5ff;
+    cursor: pointer;
+}
+
+.settings-slider-val {
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.65);
+    font-variant-numeric: tabular-nums;
+    min-width: 34px;
+    text-align: right;
+}

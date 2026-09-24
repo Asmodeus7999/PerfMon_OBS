@@ -19,7 +19,6 @@ Zero Python runtimes, zero local web servers, zero external network dependencies
   - **FPS:** Gold Yellow
 - **Window Management & Drag Protection:**
   - Dragging the overlay is strictly restricted to holding the floating **Settings button (`⚙`)**, preventing accidental moves during stream or gaming sessions.
-  - Keyboard shortcut **`S`** toggles the Settings panel.
 - **Click-Through & Right-Alt Bypass:**
   - **Click-Through Mode:** Pass all mouse clicks through the overlay to underlying games and applications.
   - **Right-Alt Quick Bypass:** While Click-Through is active, holding down **Right-Alt** temporarily restores mouse interactivity with an ambient cyan glow.

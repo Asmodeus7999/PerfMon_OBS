@@ -14,6 +14,7 @@
  *   payload.fps            — { fps, frame_time_ms } | null  (new from RTSS)
  */
 
+import './classic.css';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow, LogicalSize, PhysicalPosition } from '@tauri-apps/api/window';
@@ -27,15 +28,15 @@ const container = document.getElementById('osd-container');
 // Source IDs from MSI Afterburner SDK (MAHMSharedMemory.h) — unchanged from original
 const SRC = {
     GPU_TEMPERATURE: 0x00,
-    CORE_CLOCK:      0x20,
-    GPU_USAGE:       0x30,
-    MEMORY_USAGE:    0x31,
-    GPU_ABS_POWER:   0x61,
+    CORE_CLOCK: 0x20,
+    GPU_USAGE: 0x30,
+    MEMORY_USAGE: 0x31,
+    GPU_ABS_POWER: 0x61,
     CPU_TEMPERATURE: 0x80,
-    CPU_USAGE:       0x90,
-    RAM_USAGE:       0x91,
-    CPU_CLOCK:       0xA0,
-    CPU_POWER:       0x100,
+    CPU_USAGE: 0x90,
+    RAM_USAGE: 0x91,
+    CPU_CLOCK: 0xA0,
+    CPU_POWER: 0x100,
 };
 
 function findBySrcId(data, srcId, gpuIndex = null) {
@@ -48,18 +49,18 @@ function findBySrcId(data, srcId, gpuIndex = null) {
 
 // ── Static stat-box definitions ───────────────────────────────────────────────
 const STAT_DEFS = [
-    { id: 'cpu-temp',   unit: '°C',  label: 'Temp',       widthClass: 'sw-3d' },
-    { id: 'cpu-load',   unit: '%',   label: 'Load',       widthClass: 'sw-3d' },
-    { id: 'cpu-power',  unit: 'W',   label: 'Power',      widthClass: 'sw-3d' },
-    { id: 'cpu-clock',  unit: 'MHz', label: 'Clock',      widthClass: 'sw-4d' },
-    { id: 'gpu-temp',   unit: '°C',  label: 'Temp',       widthClass: 'sw-3d' },
-    { id: 'gpu-load',   unit: '%',   label: 'Load',       widthClass: 'sw-3d' },
-    { id: 'gpu-power',  unit: 'W',   label: 'Power',      widthClass: 'sw-3d' },
-    { id: 'gpu-clock',  unit: 'MHz', label: 'Clock',      widthClass: 'sw-4d' },
-    { id: 'ram-usage',  unit: 'MB',  label: 'System RAM', widthClass: 'sw-5d' },
-    { id: 'vram-usage', unit: 'MB',  label: 'VRAM',       widthClass: 'sw-5d' },
-    { id: 'fps',        unit: 'FPS', label: 'Framerate',  widthClass: 'sw-3d' },
-    { id: 'ftime',      unit: 'ms',  label: 'Frametime',  widthClass: 'sw-4d' },
+    { id: 'cpu-temp', unit: '°C', label: 'Temp', widthClass: 'sw-3d' },
+    { id: 'cpu-load', unit: '%', label: 'Load', widthClass: 'sw-3d' },
+    { id: 'cpu-power', unit: 'W', label: 'Power', widthClass: 'sw-3d' },
+    { id: 'cpu-clock', unit: 'MHz', label: 'Clock', widthClass: 'sw-4d' },
+    { id: 'gpu-temp', unit: '°C', label: 'Temp', widthClass: 'sw-3d' },
+    { id: 'gpu-load', unit: '%', label: 'Load', widthClass: 'sw-3d' },
+    { id: 'gpu-power', unit: 'W', label: 'Power', widthClass: 'sw-3d' },
+    { id: 'gpu-clock', unit: 'MHz', label: 'Clock', widthClass: 'sw-4d' },
+    { id: 'ram-usage', unit: 'MB', label: 'System RAM', widthClass: 'sw-5d' },
+    { id: 'vram-usage', unit: 'MB', label: 'VRAM', widthClass: 'sw-5d' },
+    { id: 'fps', unit: 'FPS', label: 'Framerate', widthClass: 'sw-3d' },
+    { id: 'ftime', unit: 'ms', label: 'Frametime', widthClass: 'sw-4d' },
 ];
 
 function statBoxSkeleton({ id, unit, label, widthClass }) {
@@ -85,6 +86,7 @@ function buildSkeleton() {
                 <div class="card-header">
                     <div class="card-dot themed-dot"></div>
                     <span class="card-name themed-color">CPU</span>
+                    <span class="card-short themed-color" id="cpu-short"></span>
                     <span class="card-subtitle" id="cpu-subtitle"></span>
                 </div>
                 <div class="stats-row">
@@ -99,6 +101,7 @@ function buildSkeleton() {
                 <div class="card-header">
                     <div class="card-dot themed-dot"></div>
                     <span class="card-name themed-color">GPU</span>
+                    <span class="card-short themed-color" id="gpu-short"></span>
                     <span class="card-subtitle" id="gpu-subtitle"></span>
                 </div>
                 <div class="stats-row">
@@ -134,18 +137,20 @@ function buildSkeleton() {
         </div>`;
 
     els = {
-        cpuCard:     document.getElementById('card-cpu'),
-        gpuCard:     document.getElementById('card-gpu'),
-        ramCard:     document.getElementById('card-ram'),
-        fpsCard:     document.getElementById('card-fps'),
+        cpuCard: document.getElementById('card-cpu'),
+        gpuCard: document.getElementById('card-gpu'),
+        ramCard: document.getElementById('card-ram'),
+        fpsCard: document.getElementById('card-fps'),
+        cpuShort: document.getElementById('cpu-short'),
+        gpuShort: document.getElementById('gpu-short'),
         cpuSubtitle: document.getElementById('cpu-subtitle'),
         gpuSubtitle: document.getElementById('gpu-subtitle'),
         ramSubtitle: document.getElementById('ram-subtitle'),
     };
     for (const def of STAT_DEFS) {
         els[def.id] = {
-            box:  document.getElementById(`box-${def.id}`),
-            val:  document.getElementById(`val-${def.id}`),
+            box: document.getElementById(`box-${def.id}`),
+            val: document.getElementById(`val-${def.id}`),
             unit: document.getElementById(`unit-${def.id}`),
         };
     }
@@ -155,13 +160,15 @@ function buildSkeleton() {
 }
 
 function setStat(id, entry, unitOverride) {
+    // Classic theme shows power with one decimal (e.g. 37.6 W), like Afterburner
+    const dec = (currentTheme === 'classic' && id.endsWith('-power')) ? 1 : 0;
     const v = (entry && entry.value !== null && entry.value !== undefined)
-        ? Math.round(entry.value)
+        ? (dec > 0 ? Number(entry.value.toFixed(dec)) : Math.round(entry.value))
         : null;
     const ref = els[id];
     if (!ref) return;
     ref.box.style.opacity = v === null ? '0.2' : '';
-    ref.val.textContent   = v !== null ? v : '–';
+    ref.val.textContent = v !== null ? v : '–';
     if (unitOverride !== undefined && ref.unit.textContent !== unitOverride) {
         ref.unit.textContent = unitOverride;
     }
@@ -172,18 +179,18 @@ function setFpsStat(id, value, decimals = 0) {
     if (!ref) return;
     if (value == null || value <= 0) {
         ref.box.style.opacity = '0.2';
-        ref.val.textContent   = '–';
+        ref.val.textContent = '–';
     } else {
         ref.box.style.opacity = '';
-        ref.val.textContent   = decimals > 0 ? value.toFixed(decimals) : Math.round(value);
+        ref.val.textContent = decimals > 0 ? value.toFixed(decimals) : Math.round(value);
     }
 }
 
 function getThemeClass(label) {
     const l = (label || '').toLowerCase();
-    if (l.includes('intel') || l.includes('arc'))                                    return 'theme-intel';
-    if (l.includes('amd')   || l.includes('radeon') || l.includes('ryzen'))          return 'theme-amd';
-    if (l.includes('nvidia')|| l.includes('geforce')|| l.includes('rtx') || l.includes('gtx')) return 'theme-nvidia';
+    if (l.includes('intel') || l.includes('arc')) return 'theme-intel';
+    if (l.includes('amd') || l.includes('radeon') || l.includes('ryzen')) return 'theme-amd';
+    if (l.includes('nvidia') || l.includes('geforce') || l.includes('rtx') || l.includes('gtx')) return 'theme-nvidia';
     return 'theme-default';
 }
 
@@ -192,6 +199,32 @@ function applyTheme(cardEl, themeClass) {
     if (!cardEl || cardEl.classList.contains(themeClass)) return;
     cardEl.classList.remove(...THEME_CLASSES);
     cardEl.classList.add(themeClass);
+}
+
+// Short labels for the Classic theme, e.g. "Intel Core i5-4690" → "i5-4690",
+// "AMD Radeon RX 580 Series" → "RX580".
+function shortCpuName(name) {
+    const n = name || '';
+    let m = n.match(/\bi[3579]-\w+/i);
+    if (m) return m[0];
+    m = n.match(/Ultra\s*([3579])\s*(\w+)/i);
+    if (m) return `U${m[1]} ${m[2]}`;
+    m = n.match(/Ryzen\s*(?:Threadripper\s*)?([3579])?\s*(\d{3,4}\w*)/i);
+    if (m) return m[1] ? `R${m[1]} ${m[2]}` : m[2];
+    const cleaned = n.replace(/\b(Intel|AMD|Core|Processor|with|Radeon|Graphics)\b/gi, '')
+        .replace(/\s+/g, ' ').trim();
+    return (cleaned || 'CPU').slice(0, 10);
+}
+
+function shortGpuName(name) {
+    const n = name || '';
+    let m = n.match(/\b(RTX|GTX|GT|RX)\s*(\d{3,4})\s*(Ti\s*SUPER|Ti|SUPER|XTX|XT|GRE)?/i);
+    if (m) return `${m[1].toUpperCase()}${m[2]}${m[3] ? m[3].replace(/\s+/g, '') : ''}`;
+    m = n.match(/Arc\s*(?:Pro\s*)?([AB]\d{3}\w*)/i);
+    if (m) return `Arc ${m[1]}`;
+    const cleaned = n.replace(/\((R|TM)\)/gi, '').replace(/\b(NVIDIA|AMD|Intel|GeForce|Radeon|Graphics|Series)\b/gi, '')
+        .replace(/\s+/g, ' ').trim();
+    return (cleaned || 'GPU').slice(0, 10);
 }
 
 function setSubtitleIfChanged(el, text) {
@@ -209,21 +242,23 @@ container.innerHTML = `
 
 listen('sensor-update', (event) => {
     const payload = event.payload;
-    const data    = payload.sensors ?? payload;
+    const data = payload.sensors ?? payload;
 
     if (!built) buildSkeleton();
 
     const GPU = 0;
 
     // System info
-    const sysInfo  = payload.system_info ?? {};
+    const sysInfo = payload.system_info ?? {};
     const gpuEntry = (sysInfo.gpus ?? [])[GPU] ?? {};
 
-    const cpuLabel  = sysInfo.cpu_name ?? 'CPU';
-    const gpuLabel  = gpuEntry.device  ?? 'GPU';
-    const ramTotal  = sysInfo.ram_gb   != null ? `${sysInfo.ram_gb} GB` : '';
+    const cpuLabel = sysInfo.cpu_name ?? 'CPU';
+    const gpuLabel = gpuEntry.device ?? 'GPU';
+    const ramTotal = sysInfo.ram_gb != null ? `${sysInfo.ram_gb} GB` : '';
     const vramTotal = gpuEntry.vram_gb != null ? `${gpuEntry.vram_gb} GB VRAM` : '';
 
+    setSubtitleIfChanged(els.cpuShort, shortCpuName(cpuLabel));
+    setSubtitleIfChanged(els.gpuShort, shortGpuName(gpuLabel));
     setSubtitleIfChanged(els.cpuSubtitle, cpuLabel);
     setSubtitleIfChanged(els.gpuSubtitle, gpuLabel);
     setSubtitleIfChanged(els.ramSubtitle, [ramTotal, vramTotal].filter(Boolean).join(' · '));
@@ -232,18 +267,18 @@ listen('sensor-update', (event) => {
     applyTheme(els.gpuCard, getThemeClass(gpuLabel));
 
     // Sensor values
-    setStat('cpu-temp',  findBySrcId(data, SRC.CPU_TEMPERATURE));
-    setStat('cpu-load',  findBySrcId(data, SRC.CPU_USAGE));
+    setStat('cpu-temp', findBySrcId(data, SRC.CPU_TEMPERATURE));
+    setStat('cpu-load', findBySrcId(data, SRC.CPU_USAGE));
     setStat('cpu-power', findBySrcId(data, SRC.CPU_POWER));
     setStat('cpu-clock', findBySrcId(data, SRC.CPU_CLOCK));
 
-    setStat('gpu-temp',  findBySrcId(data, SRC.GPU_TEMPERATURE, GPU));
-    setStat('gpu-load',  findBySrcId(data, SRC.GPU_USAGE,       GPU));
-    setStat('gpu-power', findBySrcId(data, SRC.GPU_ABS_POWER,   GPU));
-    setStat('gpu-clock', findBySrcId(data, SRC.CORE_CLOCK,      GPU));
+    setStat('gpu-temp', findBySrcId(data, SRC.GPU_TEMPERATURE, GPU));
+    setStat('gpu-load', findBySrcId(data, SRC.GPU_USAGE, GPU));
+    setStat('gpu-power', findBySrcId(data, SRC.GPU_ABS_POWER, GPU));
+    setStat('gpu-clock', findBySrcId(data, SRC.CORE_CLOCK, GPU));
 
     const ramUsage = findBySrcId(data, SRC.RAM_USAGE);
-    setStat('ram-usage',  ramUsage, ramUsage?.units ?? 'MB');
+    setStat('ram-usage', ramUsage, ramUsage?.units ?? 'MB');
     setStat('vram-usage', findBySrcId(data, SRC.MEMORY_USAGE, GPU));
 
     // FPS from RTSS or Afterburner sensor fallback
@@ -252,7 +287,7 @@ listen('sensor-update', (event) => {
         return sensors.find(e => e.name && e.name.toLowerCase().includes(lower)) || null;
     }
 
-    let fpsVal   = payload.fps?.fps;
+    let fpsVal = payload.fps?.fps;
     let ftimeVal = payload.fps?.frame_time_ms;
 
     if (fpsVal == null || fpsVal <= 0) {
@@ -264,8 +299,8 @@ listen('sensor-update', (event) => {
         if (ftimeEntry && ftimeEntry.value != null && ftimeEntry.value > 0) ftimeVal = ftimeEntry.value;
     }
 
-    setFpsStat('fps',   fpsVal,   0);
-    setFpsStat('ftime', ftimeVal, 2);
+    setFpsStat('fps', fpsVal, 0);
+    setFpsStat('ftime', ftimeVal, currentTheme === 'classic' ? 1 : 2);
 
 }).catch(err => console.error('Failed to listen to sensor-update:', err));
 
@@ -281,15 +316,19 @@ listen('sensor-error', (event) => {
 // ── Settings panel ────────────────────────────────────────────────────────────
 const settingsPanel = document.getElementById('settings-panel');
 
-// Dimensions & per-card heights for dynamic scaling
-const BASE_WIDTH = 300;
-const CARD_HEIGHTS = {
-    cpu: 145,
-    gpu: 145,
-    ram: 100,
-    fps: 100,
+// Per-theme base dimensions for dynamic scaling.
+//   default — vertical stack of cards (unchanged from before)
+//   classic — MSI Afterburner-style horizontal rows (≈ 410 × 110; tweak here)
+const THEMES = {
+    default: { width: 300, cardHeights: { cpu: 145, gpu: 145, ram: 100, fps: 100 }, padding: 0, minHeight: 100 },
+    classic: { width: 410, cardHeights: { cpu: 26, gpu: 26, ram: 26, fps: 26 }, padding: 6, minHeight: 32 },
 };
 
+let currentTheme = localStorage.getItem('theme');
+if (!THEMES[currentTheme]) currentTheme = 'default';
+document.body.dataset.theme = currentTheme;
+
+let BASE_WIDTH = THEMES[currentTheme].width;
 let currentBaseHeight = 490;
 
 // Checkbox references
@@ -311,12 +350,126 @@ if (!showCpu.checked && !showGpu.checked && !showRam.checked && !showFps.checked
 }
 
 function calcBaseHeight() {
+    const t = THEMES[currentTheme];
     let h = 0;
-    if (showCpu.checked) h += CARD_HEIGHTS.cpu;
-    if (showGpu.checked) h += CARD_HEIGHTS.gpu;
-    if (showRam.checked) h += CARD_HEIGHTS.ram;
-    if (showFps.checked) h += CARD_HEIGHTS.fps;
-    return Math.max(CARD_HEIGHTS.ram, h);
+    if (showCpu.checked) h += t.cardHeights.cpu;
+    if (showGpu.checked) h += t.cardHeights.gpu;
+    if (showRam.checked) h += t.cardHeights.ram;
+    if (showFps.checked) h += t.cardHeights.fps;
+    return Math.max(t.minHeight, h + t.padding);
+}
+
+// ── Animated window / viewport resizing ───────────────────────────────────────
+// Size changes (theme switch, showing/hiding rows) glide instead of snapping.
+// Same duration + easing as the settings-button transition in classic.css so the
+// two move together.
+const SIZE_ANIM_MS = 400;
+let viewW = BASE_WIDTH;            // size currently shown by #app-viewport (base px, unscaled)
+let viewH = currentBaseHeight;
+let sizeAnimToken = 0;             // bumped to cancel a running animation
+let sizeAnimUntil = 0;             // resize events before this time are ours, not the user's
+
+function cubicBezier(x1, y1, x2, y2) {
+    const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+    const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+    const X = t => ((ax * t + bx) * t + cx) * t;
+    const Y = t => ((ay * t + by) * t + cy) * t;
+    return (x) => {
+        if (x <= 0) return 0;
+        if (x >= 1) return 1;
+        let t = x;
+        for (let i = 0; i < 8; i++) {           // Newton's method
+            const d = (3 * ax * t + 2 * bx) * t + cx;
+            if (Math.abs(d) < 1e-6) break;
+            t -= (X(t) - x) / d;
+        }
+        return Y(Math.min(1, Math.max(0, t)));
+    };
+}
+const sizeEase = cubicBezier(0.4, 0, 0.2, 1);  // matches classic.css
+
+// ── Settings panel expansion (Classic theme) ─────────────────────────────────
+// The classic window is only ~110px tall, too short for the settings panel. While the
+// panel is open in Classic, the window grows to fit it (animated) and shrinks back when
+// it closes. panelExpandedHeight is 0 whenever no expansion is needed.
+let panelExpandedHeight = 0;
+
+/** Height (base px) the window should currently have: content, or the open panel if taller. */
+function windowBaseHeight() {
+    return Math.max(currentBaseHeight, panelExpandedHeight);
+}
+
+/** Natural full height of the settings panel in base px (measured on a hidden clone). */
+function measureSettingsPanel() {
+    const viewport = document.getElementById('app-viewport');
+    if (!settingsPanel || !viewport) return 0;
+    const clone = settingsPanel.cloneNode(true);
+    clone.removeAttribute('id');
+    clone.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'));
+    clone.classList.remove('hidden');
+    clone.style.cssText = 'visibility:hidden;pointer-events:none;transition:none;max-height:none;height:auto;overflow:visible;';
+    viewport.appendChild(clone);
+    const h = Math.ceil(clone.getBoundingClientRect().height / getCurrentUiScale());
+    clone.remove();
+    return h;
+}
+
+/** Decide whether the window should currently be expanded for the panel; returns true if so. */
+function syncPanelExpansion() {
+    const open = settingsPanel && !settingsPanel.classList.contains('hidden');
+    const expand = !!open && currentTheme === 'classic';
+    panelExpandedHeight = expand ? measureSettingsPanel() : 0;
+    if (expand) document.body.classList.add('settings-expanded');
+    return expand;
+}
+
+function getCurrentUiScale() {
+    const s = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-scale'));
+    return s > 0 ? s : 1;
+}
+
+function setViewSize(w, h) {
+    viewW = w;
+    viewH = h;
+    const viewport = document.getElementById('app-viewport');
+    if (viewport) {
+        viewport.style.width = `${w}px`;
+        viewport.style.height = `${h}px`;
+    }
+}
+
+function applyViewportSize() {
+    setViewSize(BASE_WIDTH, windowBaseHeight());
+    document.body.style.setProperty('--content-h', `${currentBaseHeight}px`);
+}
+
+/** Animate the viewport and the real window from the current size to (toW × toH) base px. */
+async function animateSize(toW, toH, scale) {
+    const fromW = viewW, fromH = viewH;
+    const token = ++sizeAnimToken;
+    const winSize = (w, h) => new LogicalSize(Math.round(w * scale), Math.round(h * scale));
+
+    sizeAnimUntil = performance.now() + SIZE_ANIM_MS + 300;
+    if (fromW !== toW || fromH !== toH) {
+        const t0 = performance.now();
+        await new Promise((resolve) => {
+            const step = (now) => {
+                if (token !== sizeAnimToken) return resolve();      // superseded by a newer resize
+                const p = Math.min(1, (now - t0) / SIZE_ANIM_MS);
+                const e = sizeEase(p);
+                const w = fromW + (toW - fromW) * e;
+                const h = fromH + (toH - fromH) * e;
+                setViewSize(w, h);
+                appWindow.setSize(winSize(w, h)).catch(() => { });
+                if (p < 1) requestAnimationFrame(step); else resolve();
+            };
+            requestAnimationFrame(step);
+        });
+    }
+    if (token !== sizeAnimToken) return;
+    setViewSize(toW, toH);
+    await appWindow.setSize(winSize(toW, toH));
+    sizeAnimUntil = performance.now() + 300;   // ignore the trailing resize events
 }
 
 /**
@@ -371,29 +524,28 @@ async function applyVisibility() {
     // Recompute base height and adjust viewport
     const newBaseHeight = calcBaseHeight();
     currentBaseHeight = newBaseHeight;
+    document.body.style.setProperty('--content-h', `${newBaseHeight}px`);
+    syncPanelExpansion();                       // Classic: grow to fit the settings panel if open
+    const targetHeight = windowBaseHeight();
 
-    const viewport = document.getElementById('app-viewport');
-    if (viewport) {
-        viewport.style.height = `${newBaseHeight}px`;
-    }
-
-    // Notify backend of the new base height for aspect ratio locking during resize dragging
+    // Notify backend of the new base size for aspect ratio locking during resize dragging
     try {
-        await invoke('set_base_height', { height: newBaseHeight });
+        await invoke('set_base_size', { width: BASE_WIDTH, height: targetHeight });
     } catch (err) {
-        console.error('set_base_height error:', err);
+        console.error('set_base_size error:', err);
     }
 
-    // Resize window height to match the new content height
+    // Glide the viewport + window to the new size
     try {
         const savedScale = parseFloat(localStorage.getItem('app-scale') || '1.0');
         const scale = isNaN(savedScale) ? 1.0 : Math.max(0.6, Math.min(3.0, savedScale));
-        const targetW = Math.round(BASE_WIDTH * scale);
-        const targetH = Math.round(newBaseHeight * scale);
-        await appWindow.setSize(new LogicalSize(targetW, targetH));
+        await animateSize(BASE_WIDTH, targetHeight, scale);
     } catch (err) {
         console.error('Failed to resize window for visibility change:', err);
     }
+
+    // Once the window has shrunk back, un-pin the settings button
+    if (!panelExpandedHeight) document.body.classList.remove('settings-expanded');
 }
 
 function handleMonitorToggle() {
@@ -410,6 +562,60 @@ showCpu.addEventListener('change', handleMonitorToggle);
 showGpu.addEventListener('change', handleMonitorToggle);
 showRam.addEventListener('change', handleMonitorToggle);
 showFps.addEventListener('change', handleMonitorToggle);
+
+// ── Theme selection (default = vertical, classic = Afterburner-style horizontal)
+const themeSelect = document.getElementById('theme-select');
+if (themeSelect) {
+    themeSelect.value = currentTheme;
+    let themeSwitchToken = 0;
+    const GEAR_FADE_MS = 200;   // matches the settings button's 0.2s opacity transition
+
+    themeSelect.addEventListener('change', async () => {
+        const next = THEMES[themeSelect.value] ? themeSelect.value : 'default';
+        if (next === currentTheme) return;
+        const token = ++themeSwitchToken;
+
+        // Settings button: fade out where it is, swap the theme, fade back in at the new spot
+        document.body.classList.add('gear-hidden');
+        await new Promise((r) => setTimeout(r, GEAR_FADE_MS));
+        if (token !== themeSwitchToken) return;
+
+        currentTheme = next;
+        BASE_WIDTH = THEMES[next].width;
+        document.body.dataset.theme = next;
+        localStorage.setItem('theme', next);
+        loadBgOpacity();
+        await applyVisibility(); // recomputes size, animates the window, updates backend aspect ratio
+
+        if (token === themeSwitchToken) document.body.classList.remove('gear-hidden');
+    });
+}
+
+// ── Background opacity slider (widget background only — text/values are unaffected)
+// Stored per theme so each theme keeps its own level; defaults match the original looks.
+const BG_DEFAULT_PCT = { default: 85, classic: 55 };
+const bgSlider = document.getElementById('bg-opacity');
+const bgSliderVal = document.getElementById('bg-opacity-val');
+
+function applyBgOpacity(pct) {
+    document.body.style.setProperty('--bg-alpha', String(pct / 100));
+    if (bgSlider) bgSlider.value = String(pct);
+    if (bgSliderVal) bgSliderVal.textContent = `${pct}%`;
+}
+
+function loadBgOpacity() {
+    const saved = parseInt(localStorage.getItem(`bg-opacity-${currentTheme}`), 10);
+    applyBgOpacity(Number.isNaN(saved) ? BG_DEFAULT_PCT[currentTheme] : Math.max(0, Math.min(100, saved)));
+}
+
+if (bgSlider) {
+    bgSlider.addEventListener('input', () => {
+        const pct = parseInt(bgSlider.value, 10);
+        applyBgOpacity(pct);
+        localStorage.setItem(`bg-opacity-${currentTheme}`, String(pct));
+    });
+}
+loadBgOpacity();
 
 // ── Permanent transparent window background ──────────────────────────────────
 document.documentElement.style.backgroundColor = 'transparent';
@@ -431,6 +637,10 @@ async function setClickthrough(enabled) {
         if (enabled && settingsPanel && !settingsPanel.classList.contains('hidden')) {
             settingsPanel.classList.add('hidden');
             if (settingsBtn) settingsBtn.classList.remove('active');
+            document.body.classList.add('settings-expanding');
+            applyVisibility().finally(() => {
+                document.body.classList.remove('settings-expanding');
+            });
         }
     } catch (err) {
         console.error('Failed to set click-through:', err);
@@ -485,7 +695,7 @@ window.addEventListener('keyup', (e) => {
     if (e.key === 'Alt' || e.code === 'AltRight' || e.code === 'AltLeft') {
         document.body.classList.remove('clickthrough-bypassed');
         if (clickthroughToggle && clickthroughToggle.checked) {
-            appWindow.setIgnoreCursorEvents(true).catch(() => {});
+            appWindow.setIgnoreCursorEvents(true).catch(() => { });
         }
     }
 });
@@ -500,7 +710,7 @@ window.addEventListener('blur', () => {
 // ── Always on Top (toggle in settings panel) ──────────────────────────────────
 const aotToggle = document.getElementById('aot-toggle');
 
-aotToggle.checked = localStorage.getItem('always-on-top') !== 'false';
+aotToggle.checked = localStorage.getItem('always-on-top') === 'true'; // off by default
 appWindow.setAlwaysOnTop(aotToggle.checked);
 
 aotToggle.addEventListener('change', () => {
@@ -517,6 +727,10 @@ function toggleSettings() {
     if (settingsBtn) {
         settingsBtn.classList.toggle('active', !isHidden);
     }
+    document.body.classList.add('settings-expanding');   // hide the panel's scrollbar mid-resize
+    applyVisibility().finally(() => {                     // Classic: grow/shrink window to fit the panel
+        document.body.classList.remove('settings-expanding');
+    });
 }
 
 let isMouseDownOnSettings = false;
@@ -587,15 +801,9 @@ window.addEventListener('blur', () => {
     clearTimeout(dragTimer);
 });
 
-window.addEventListener('keydown', (e) => {
-    if (e.key === 's' || e.key === 'S') {
-        toggleSettings();
-    }
-});
-
 // ── Window controls (in settings dropdown) ───────────────────────────────────
 const btnMinimize = document.getElementById('btn-minimize');
-const btnClose    = document.getElementById('btn-close');
+const btnClose = document.getElementById('btn-close');
 
 if (btnMinimize) {
     btnMinimize.addEventListener('click', () => {
@@ -631,18 +839,20 @@ document.querySelectorAll('.corner-resize').forEach(corner => {
 // Window resize listener — keeps layout scaling proportional to window size
 let resizeTimer = null;
 window.addEventListener('resize', () => {
-    const scale = Math.min(window.innerWidth / BASE_WIDTH, window.innerHeight / currentBaseHeight);
+    if (performance.now() < sizeAnimUntil) return;   // our own animated resize — not a user drag
+    const scale = Math.min(window.innerWidth / BASE_WIDTH, window.innerHeight / windowBaseHeight());
     updateScaleUI(scale);
 
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(async () => {
+        if (performance.now() < sizeAnimUntil) return;
         try {
             const isMax = await appWindow.isMaximized();
             const isMin = await appWindow.isMinimized();
             if (!isMax && !isMin) {
                 const snappedScale = Math.max(0.6, Math.min(3.0, scale));
                 const targetW = Math.round(BASE_WIDTH * snappedScale);
-                const targetH = Math.round(currentBaseHeight * snappedScale);
+                const targetH = Math.round(windowBaseHeight() * snappedScale);
                 await appWindow.setSize(new LogicalSize(targetW, targetH));
                 localStorage.setItem('app-scale', snappedScale);
             }
@@ -655,9 +865,10 @@ window.addEventListener('resize', () => {
 (async function initWindowPersistence() {
     try {
         currentBaseHeight = calcBaseHeight();
+        applyViewportSize();
         try {
-            await invoke('set_base_height', { height: currentBaseHeight });
-        } catch (_) {}
+            await invoke('set_base_size', { width: BASE_WIDTH, height: currentBaseHeight });
+        } catch (_) { }
 
         // Restore saved scale (default = 1.0)
         const savedScale = parseFloat(localStorage.getItem('app-scale') || '1.0');
@@ -699,4 +910,3 @@ window.addEventListener('resize', () => {
         }, 150);
     });
 })();
-
