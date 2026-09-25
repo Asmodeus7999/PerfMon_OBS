@@ -258,6 +258,15 @@ body.settings-expanded[data-theme="classic"] #settings-btn {
     top: calc(var(--content-h, 110px) / 2);
 }
 
+/* Pin the open panel to the exact window edges instead of relying on its own
+   measured content height. The window is already resized in JS to fit the panel,
+   but on a scaled Windows display that measurement can be off by a sub-pixel — this
+   makes the panel fill the window exactly either way, so no gap can appear at a
+   rounded corner. */
+body[data-theme="classic"] .settings-panel:not(.hidden) {
+    bottom: 0;
+}
+
 /* Hide the panel's own scrollbar while the window is still animating up to its
    expanded height — it briefly overflows mid-resize and the scrollbar flashes. */
 body.settings-expanding[data-theme="classic"] .settings-panel {
