@@ -5,11 +5,12 @@
 // sensor data to the frontend via Tauri events every ~1 second.
 // ─────────────────────────────────────────────────────────────────────────────
 
-mod afterburner;
+
+mod lhm;
 mod rtss;
 mod sysinfo;
 
-use afterburner::AfterburnerReader;
+use lhm::LhmReader;
 use rtss::RTSSReader;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -36,8 +37,26 @@ fn set_base_size(width: u32, height: u32) {
 /// Matches the JSON structure that the existing overlay/script.js already parses
 /// (`payload.sensors`, `payload.system_info`) so the frontend code barely changes.
 #[derive(Serialize, Clone, Debug)]
+pub struct SensorEntry {
+    pub name: String,
+    pub units: String,
+    pub value: Option<f32>,
+    pub gpu: u32,
+    #[serde(rename = "srcId")]
+    pub src_id: u32,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct GpuInfo {
+    pub index: usize,
+    pub device: String,
+    pub family: String,
+    pub vram_gb: Option<f32>,
+}
+
+#[derive(Serialize, Clone, Debug)]
 struct SensorPayload {
-    sensors: Vec<afterburner::SensorEntry>,
+    sensors: Vec<SensorEntry>,
     system_info: sysinfo::SystemInfo,
     fps: Option<rtss::FpsData>,
 }
@@ -53,17 +72,14 @@ pub fn run() {
             // Runs independently of the async Tauri runtime.
             // Polls shared memory every 1 second and emits events to the frontend.
             std::thread::spawn(move || {
-                let mut ab = AfterburnerReader::new();
+                let mut lhm = LhmReader::new();
                 let mut rtss = RTSSReader::new();
-                // Cache system info (CPU name, RAM, GPU names) so we don't re-read
-                // expensive OS APIs every second.  Mirrors `_system_info_cache` in Python.
                 let mut sys_info_cache: Option<sysinfo::SystemInfo> = None;
 
                 loop {
-                    match ab.get_data() {
+                    match lhm.get_data() {
                         Some((sensors, gpu_infos)) => {
-                            // Rebuild cache if empty (e.g. after Afterburner restart)
-                            if sys_info_cache.is_none() {
+                            if sys_info_cache.is_none() && !gpu_infos.is_empty() {
                                 sys_info_cache = sysinfo::build_system_info(&gpu_infos);
                             }
 
@@ -78,12 +94,10 @@ pub fn run() {
                             }
                         }
                         None => {
-                            // Afterburner not running — reset cache so names are
-                            // re-read fresh when it starts again
                             sys_info_cache = None;
                             let _ = app_handle.emit(
                                 "sensor-error",
-                                "MSI Afterburner not found. Is it running?",
+                                "LibreHardwareMonitor not found. Is it running (as Administrator)?",
                             );
                         }
                     }

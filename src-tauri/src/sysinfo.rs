@@ -23,7 +23,7 @@ pub struct SystemInfo {
     pub cpu_name: String,
     pub ram_gb: u32,
     pub ram_type: String,
-    pub gpus: Vec<crate::afterburner::GpuInfo>,
+    pub gpus: Vec<crate::GpuInfo>,
 }
 
 // ── System info builder ───────────────────────────────────────────────────────
@@ -32,7 +32,7 @@ pub struct SystemInfo {
 ///
 /// Returns `None` until all GPUs have a valid VRAM reading so the frontend
 /// always shows complete data (mirrors the Python caching logic).
-pub fn build_system_info(gpu_infos: &[crate::afterburner::GpuInfo]) -> Option<SystemInfo> {
+pub fn build_system_info(gpu_infos: &[crate::GpuInfo]) -> Option<SystemInfo> {
     // Don't cache yet if any GPU still has no VRAM reading
     if gpu_infos.iter().any(|g| g.vram_gb.is_none()) {
         return None;

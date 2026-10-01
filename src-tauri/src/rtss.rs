@@ -15,7 +15,7 @@ use windows_sys::Win32::{
     System::Memory::{MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FILE_MAP_READ, MEMORY_MAPPED_VIEW_ADDRESS},
 };
 
-const RTSS_SIGNATURE: u32 = 0x53535452; // 'RTSS'
+const RTSS_SIGNATURE: u32 = 0x52545353; // 'RTSS' in memory order
 const RTSS_SHM_NAME: &str = "RTSSSharedMemoryV2";
 
 // ── RTSSSharedMemoryV2 header field offsets (all u32, 4 bytes each, packed) ──
@@ -51,9 +51,10 @@ impl RTSSHeader {
 // 296    dwMaxFPS        u32
 struct RTSSEntry;
 impl RTSSEntry {
-    const OFF_PROCESS_ID:  usize = 0;
-    const OFF_FRAME_TIME:  usize = 280;
-    const OFF_CURRENT_FPS: usize = 284;
+    const OFF_PROCESS_ID: usize = 0;
+    const OFF_TIME0:      usize = 268;
+    const OFF_TIME1:      usize = 272;
+    const OFF_FRAMES:     usize = 276;
 }
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -90,7 +91,6 @@ impl RTSSReader {
             if handle == 0 {
                 return false;
             }
-            // windows-sys 0.52: MapViewOfFile returns MEMORY_MAPPED_VIEW_ADDRESS { Value: *mut c_void }
             let mapped = unsafe { MapViewOfFile(handle, FILE_MAP_READ, 0, 0, 0) };
             let ptr = mapped.Value;
             if ptr.is_null() {
@@ -150,29 +150,45 @@ impl RTSSReader {
             return None;
         }
 
-        // Pick the slot with the highest active FPS (= foreground game)
-        let mut best_fps: u32 = 0;
-        let mut best_ftime: u32 = 0;
+        // Pick the slot with the highest calculated FPS (= foreground game)
+        let mut best_fps: f32 = 0.0;
+        let mut best_ftime: f32 = 0.0;
 
         for i in 0..app_arr_size {
             let entry = unsafe { base.add(app_arr_offset + i * app_entry_size) };
 
-            let _pid = unsafe { ptr::read_unaligned(entry.add(RTSSEntry::OFF_PROCESS_ID) as *const u32) };
+            let pid = unsafe { ptr::read_unaligned(entry.add(RTSSEntry::OFF_PROCESS_ID) as *const u32) };
+            if pid == 0 {
+                continue; // empty slot
+            }
 
-            let cur_fps = unsafe { ptr::read_unaligned(entry.add(RTSSEntry::OFF_CURRENT_FPS) as *const u32) };
-            if cur_fps > best_fps {
-                best_fps   = cur_fps;
-                best_ftime = unsafe { ptr::read_unaligned(entry.add(RTSSEntry::OFF_FRAME_TIME) as *const u32) };
+            let time0  = unsafe { ptr::read_unaligned(entry.add(RTSSEntry::OFF_TIME0)  as *const u32) };
+            let time1  = unsafe { ptr::read_unaligned(entry.add(RTSSEntry::OFF_TIME1)  as *const u32) };
+            let frames = unsafe { ptr::read_unaligned(entry.add(RTSSEntry::OFF_FRAMES) as *const u32) };
+
+            let dt = time1.wrapping_sub(time0);
+            if dt == 0 || frames == 0 || time0 == 0 {
+                continue;
+            }
+
+            // FPS = frames * 1000 / (time1 - time0)   [times are in ms]
+            let fps = frames as f32 * 1000.0 / dt as f32;
+            // Frametime = (time1 - time0) / frames     [result in ms]
+            let ftime = dt as f32 / frames as f32;
+
+            if fps > best_fps {
+                best_fps = fps;
+                best_ftime = ftime;
             }
         }
 
-        if best_fps == 0 {
+        if best_fps < 0.1 {
             return None; // no active game
         }
 
         Some(FpsData {
-            fps: best_fps as f32 / 1000.0,
-            frame_time_ms: best_ftime as f32 / 1000.0,
+            fps: (best_fps * 10.0).round() / 10.0,
+            frame_time_ms: (best_ftime * 100.0).round() / 100.0,
         })
     }
 }

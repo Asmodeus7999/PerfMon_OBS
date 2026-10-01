@@ -44,6 +44,8 @@ body[data-theme="classic"] {
     /* first value column (load / RAM / FPS) */
     --classic-col2: 84px;
     /* second value column (clock / frametime) */
+    --classic-col3: 72px;
+    /* third value column (power) */
     --classic-radius: 14px;
     /* background corner radius */
     font-family: 'Bahnschrift', 'Arial Narrow', 'Inter', sans-serif;
@@ -132,9 +134,14 @@ body[data-theme="classic"] .card-fps .stats-row {
 }
 
 body[data-theme="classic"] .card-cpu .stats-row,
-body[data-theme="classic"] .card-gpu .stats-row,
+body[data-theme="classic"] .card-gpu .stats-row {
+    grid-template-columns: var(--classic-col1) var(--classic-col2) var(--classic-col3) 1fr;
+}
+
+/* RAM row: same 4-column grid as CPU/GPU — VRAM sits in col3 (power position),
+   gear auto-places into col4 (temp position). JS moves the gear into this grid. */
 body[data-theme="classic"] .card-ram .stats-row {
-    grid-template-columns: var(--classic-col1) var(--classic-col2) 1fr 1fr;
+    grid-template-columns: var(--classic-col1) var(--classic-col2) var(--classic-col3) 1fr;
 }
 
 /* FPS + frametime share one row */
@@ -205,8 +212,8 @@ body[data-theme="classic"] .stat-box .stat-label {
     display: none;
 }
 
-/* RAM + VRAM share one row: the VRAM label sits at the start of the clock
-   column and its value lines up with the wattage column. */
+/* VRAM box: spans col2+col3 — label "VRAM" aligns with the clock column,
+   numeric value falls in the power column. Gear auto-places into col4 (temp). */
 body[data-theme="classic"] #box-vram-usage {
     grid-column: 2 / span 2;
 }
@@ -216,27 +223,34 @@ body[data-theme="classic"] #box-vram-usage .stat-label {
     order: -1;
     flex: none;
     width: var(--classic-col2);
-    /* value then starts exactly at the wattage column */
+    /* value then starts exactly at the wattage/power column */
     text-transform: none;
     color: var(--classic-vram);
 }
 
-/* Gear button — Classic position: right edge, vertically centered, 12px from the
-   right (= row padding). Size, padding and the hover grow are the same as the
-   default theme. Switching themes does not slide the button: it fades out, the
-   theme swaps, then it fades back in at its new position (see main.js). */
+/* Gear button — Classic: floats at the right edge of the RAM row (beside VRAM,
+   under the temp column). position:fixed (effectively absolute in the scaled
+   viewport) keeps it out of the grid so VRAM alignment is undisturbed. */
 body[data-theme="classic"] #settings-btn {
-    left: auto;
-    right: 12px;
-    top: 50%;
+    right: auto;
+    left: 326px;                 /* aligns exactly with the start of col4 (Temp column) */
+    top: 68px;                   /* vertical center of the RAM row */
     transform: translateY(-50%);
+    padding: 2px 7px;
+    font-size: 12px;
 }
 
 body[data-theme="classic"] #settings-btn:hover,
 body[data-theme="classic"] #settings-btn:focus-visible,
 body[data-theme="classic"] #settings-btn.active {
-    left: auto;
     transform: translateY(-50%) scale(1.05);
+}
+
+/* While the settings panel is open the window grows taller; keep the button
+   pinned at the RAM row of the collapsed widget, not the expanded window. */
+body.settings-expanded[data-theme="classic"] #settings-btn {
+    top: calc(var(--content-h, 110px) * 0.618); /* ~RAM row center across 4 rows */
+    transform: translateY(-50%);
 }
 
 /* Fade-out state used while the theme is being switched (uses the button's own
@@ -252,11 +266,8 @@ body[data-theme="classic"] .settings-panel {
     border-radius: var(--classic-radius);
 }
 
-/* While the window is expanded for the panel, keep the settings button pinned at the
-   vertical center of the normal (collapsed) widget instead of the taller window. */
-body.settings-expanded[data-theme="classic"] #settings-btn {
-    top: calc(var(--content-h, 110px) / 2);
-}
+
+
 
 /* Pin the open panel to the exact window edges instead of relying on its own
    measured content height. The window is already resized in JS to fit the panel,

@@ -29,10 +29,10 @@ export const dom = {
 
 // ── Per-theme base dimensions for dynamic scaling ─────────────────────────────
 //   default — vertical stack of cards (unchanged from before)
-//   classic — MSI Afterburner-style horizontal rows (≈ 410 × 110)
+//   classic — MSI Afterburner-style horizontal rows (≈ 380 × 110)
 export const THEMES = {
     default: { width: 300, cardHeights: { cpu: 145, gpu: 145, ram: 100, fps: 100 }, padding: 0, minHeight: 100 },
-    classic: { width: 410, cardHeights: { cpu: 26,  gpu: 26,  ram: 26,  fps: 26  }, padding: 6, minHeight: 32  },
+    classic: { width: 380, cardHeights: { cpu: 26,  gpu: 26,  ram: 26,  fps: 26  }, padding: 6, minHeight: 32  },
 };
 
 // Starting background-opacity percentage per theme (matches each theme's original look)
