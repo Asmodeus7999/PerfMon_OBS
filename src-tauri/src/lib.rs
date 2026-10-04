@@ -75,12 +75,32 @@ pub fn run() {
                 let mut lhm = LhmReader::new();
                 let mut rtss = RTSSReader::new();
                 let mut sys_info_cache: Option<sysinfo::SystemInfo> = None;
+                let mut error_count = 0;
+                let max_errors = 5;
 
                 loop {
                     match lhm.get_data() {
                         Some((sensors, gpu_infos)) => {
+                            error_count = 0;
                             if sys_info_cache.is_none() && !gpu_infos.is_empty() {
                                 sys_info_cache = sysinfo::build_system_info(&gpu_infos);
+                                
+                                // Attempt to bump LHM's priority to Normal to prevent timeouts during gaming.
+                                // Note: This will silently fail if PerfMon OBS is not run as Administrator.
+                                #[cfg(target_os = "windows")]
+                                {
+                                    std::thread::spawn(|| {
+                                        use std::os::windows::process::CommandExt;
+                                        let _ = std::process::Command::new("powershell")
+                                            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                                            .args(&[
+                                                "-WindowStyle", "Hidden",
+                                                "-Command",
+                                                "Get-Process LibreHardwareMonitor -ErrorAction SilentlyContinue | ForEach-Object { $_.PriorityClass = 'Normal' }"
+                                            ])
+                                            .spawn();
+                                    });
+                                }
                             }
 
                             if let Some(ref sys_info) = sys_info_cache {
@@ -94,11 +114,14 @@ pub fn run() {
                             }
                         }
                         None => {
-                            sys_info_cache = None;
-                            let _ = app_handle.emit(
-                                "sensor-error",
-                                "LibreHardwareMonitor not found. Is it running (as Administrator)?",
-                            );
+                            error_count += 1;
+                            if error_count >= max_errors {
+                                sys_info_cache = None;
+                                let _ = app_handle.emit(
+                                    "sensor-error",
+                                    "LibreHardwareMonitor not found. Is it running (as Administrator)?",
+                                );
+                            }
                         }
                     }
 

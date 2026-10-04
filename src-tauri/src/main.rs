@@ -5,7 +5,7 @@
 fn main() {
     std::env::set_var(
     "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-    "--disable-gpu --disable-gpu-compositing --disable-d3d11"
+    "--use-angle=swiftshader"
 );
     perfmon_obs_lib::run();
 }

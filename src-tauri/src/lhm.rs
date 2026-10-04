@@ -39,7 +39,7 @@ impl LhmReader {
     pub fn get_data(&mut self) -> Option<(Vec<SensorEntry>, Vec<GpuInfo>)> {
         // Fetch JSON from LHM local web server
         let res = match ureq::get("http://localhost:8085/data.json")
-            .timeout(std::time::Duration::from_millis(800))
+            .timeout(std::time::Duration::from_millis(2000))
             .call()
         {
             Ok(r) => r,
