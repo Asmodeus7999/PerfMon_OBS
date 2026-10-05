@@ -5,13 +5,11 @@
 // sensor data to the frontend via Tauri events every ~1 second.
 // ─────────────────────────────────────────────────────────────────────────────
 
-
 mod lhm;
-mod rtss;
+mod presentmon;
 mod sysinfo;
 
 use lhm::LhmReader;
-use rtss::RTSSReader;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use tauri::Emitter;
@@ -58,7 +56,7 @@ pub struct GpuInfo {
 struct SensorPayload {
     sensors: Vec<SensorEntry>,
     system_info: sysinfo::SystemInfo,
-    fps: Option<rtss::FpsData>,
+    fps: Option<presentmon::FpsData>,
 }
 
 // ── Tauri app entry point ─────────────────────────────────────────────────────
@@ -73,7 +71,7 @@ pub fn run() {
             // Polls shared memory every 1 second and emits events to the frontend.
             std::thread::spawn(move || {
                 let mut lhm = LhmReader::new();
-                let mut rtss = RTSSReader::new();
+                let pm = presentmon::PresentMonReader::new();
                 let mut sys_info_cache: Option<sysinfo::SystemInfo> = None;
                 let mut error_count = 0;
                 let max_errors = 5;
@@ -84,27 +82,10 @@ pub fn run() {
                             error_count = 0;
                             if sys_info_cache.is_none() && !gpu_infos.is_empty() {
                                 sys_info_cache = sysinfo::build_system_info(&gpu_infos);
-                                
-                                // Attempt to bump LHM's priority to Normal to prevent timeouts during gaming.
-                                // Note: This will silently fail if PerfMon OBS is not run as Administrator.
-                                #[cfg(target_os = "windows")]
-                                {
-                                    std::thread::spawn(|| {
-                                        use std::os::windows::process::CommandExt;
-                                        let _ = std::process::Command::new("powershell")
-                                            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-                                            .args(&[
-                                                "-WindowStyle", "Hidden",
-                                                "-Command",
-                                                "Get-Process LibreHardwareMonitor -ErrorAction SilentlyContinue | ForEach-Object { $_.PriorityClass = 'Normal' }"
-                                            ])
-                                            .spawn();
-                                    });
-                                }
                             }
 
                             if let Some(ref sys_info) = sys_info_cache {
-                                let fps = rtss.get_fps_data();
+                                let fps = pm.as_ref().and_then(|p| p.get_fps_data());
                                 let payload = SensorPayload {
                                     sensors,
                                     system_info: sys_info.clone(),
@@ -119,7 +100,7 @@ pub fn run() {
                                 sys_info_cache = None;
                                 let _ = app_handle.emit(
                                     "sensor-error",
-                                    "LibreHardwareMonitor not found. Is it running (as Administrator)?",
+                                    "No sensor data source found. Ensure PerfMon OBS is running as Administrator.",
                                 );
                             }
                         }
@@ -165,10 +146,23 @@ pub fn run() {
                         unsafe {
                             use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
                             use windows_sys::Win32::UI::WindowsAndMessaging::{
-                                CallWindowProcW, SetWindowLongPtrW, GWLP_WNDPROC,
+                                CallWindowProcW, GetWindowLongPtrW, SetWindowLongPtrW,
+                                GWLP_WNDPROC, GWL_EXSTYLE,
                                 HTBOTTOM, HTCLIENT, HTLEFT, HTRIGHT, HTTOP,
-                                WNDPROC, WM_NCHITTEST,
+                                WNDPROC, WM_NCHITTEST, WS_EX_NOACTIVATE,
                             };
+
+                            let raw_hwnd = hwnd.0 as HWND;
+
+                            // Add WS_EX_NOACTIVATE so the overlay is fully invisible to the
+                            // input chain & DWM compositor — fixes cursor coordinate mismatch
+                            // in games that use raw input (e.g. osu!, CS2).
+                            let ex_style = GetWindowLongPtrW(raw_hwnd, GWL_EXSTYLE);
+                            SetWindowLongPtrW(
+                                raw_hwnd,
+                                GWL_EXSTYLE,
+                                ex_style | WS_EX_NOACTIVATE as isize,
+                            );
 
                             static mut PREV_PROC: WNDPROC = None;
 
@@ -237,7 +231,6 @@ pub fn run() {
                                 CallWindowProcW(PREV_PROC, hwnd, msg, wparam, lparam)
                             }
 
-                            let raw_hwnd = hwnd.0 as HWND;
                             let prev = SetWindowLongPtrW(
                                 raw_hwnd,
                                 GWLP_WNDPROC,
@@ -250,6 +243,22 @@ pub fn run() {
             }
 
             Ok(())
+        })
+        .on_window_event(|_window, event| {
+            // When the main window is closed, explicitly kill all sidecar child processes
+            // then force-exit. NOTE: std::process::exit() bypasses Rust's Drop, so we
+            // cannot rely on the Drop impls in lhm.rs / presentmon.rs here.
+            if let tauri::WindowEvent::Destroyed = event {
+                #[cfg(target_os = "windows")]
+                for proc in &["lhm-sidecar.exe", "PresentMon-x64.exe"] {
+                    use std::os::windows::process::CommandExt;
+                    let _ = std::process::Command::new("taskkill")
+                        .args(&["/F", "/IM", proc])
+                        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                        .output();
+                }
+                std::process::exit(0);
+            }
         })
         .invoke_handler(tauri::generate_handler![set_clickthrough_active, set_base_size])
         .run(tauri::generate_context!())

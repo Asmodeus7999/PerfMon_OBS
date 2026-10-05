@@ -2,57 +2,65 @@
 
 ## A Vibecode Project
 
-A sleek, ultra-lightweight hardware monitoring overlay for streamers and gamers. Built with **Tauri v2**, **Rust**, and **Vanilla Web technologies**, it reads telemetry directly from **LibreHardwareMonitor** (for CPU/GPU/RAM) and **RTSS (RivaTuner Statistics Server)** (for FPS) to display real-time metrics.
+A sleek, ultra-lightweight hardware monitoring overlay for streamers and gamers. Built with **Tauri v2**, **Rust**, and **Vanilla Web technologies**.
 
-Zero Python runtimes, zero complex setups, zero external network dependencies.
+Real-time hardware metrics are powered by two embedded sidecars that launch automatically with the app — no third-party software required:
+
+- **LibreHardwareMonitor** (LHM) sidecar — CPU, GPU, RAM, Power telemetry
+- **Intel PresentMon** — FPS and frametime via Windows ETW (passive, injection-free)
+
+Zero Python runtimes. Zero external network dependencies. No RTSS. No standalone LHM.
 
 ---
 
 ## Features
 
-- **Direct Hardware & FPS Telemetry:**
-  - **Hardware Sensors:** Reads CPU, GPU, RAM, VRAM, and Power telemetry seamlessly via **LibreHardwareMonitor**'s local web server API.
-  - **Framerate Tracking:** Reads FPS and frametimes via direct low-level Win32 Shared Memory from **RTSS** (`RTSSSharedMemoryV2`).
-- **Dynamic Hardware Detection:** Automatically detects CPU model and GPU brand/VRAM directly from the Windows Registry and LHM.
-- **Vendor-Themed Aesthetics:** Intelligently color-codes metrics based on hardware vendor:
+- **Fully Embedded Telemetry — No Third-Party Apps Required:**
+  - **Hardware Sensors:** CPU temp/load, GPU temp/load/VRAM, RAM usage, Power draw via an embedded **LibreHardwareMonitor** sidecar.
+  - **Framerate Tracking:** FPS and frametime via **Intel PresentMon** using Windows ETW — completely passive, no process injection. Safe with all anti-cheats (Vanguard, EAC, BattlEye).
+  - **Automatic Game Detection:** Tracks all running processes simultaneously and always reports the highest-FPS app. No game list required.
+- **OBS Compatible:** Uses `--use-angle=swiftshader` renderer to prevent OBS Game Capture black-screen issues.
+- **Dynamic Hardware Detection:** Auto-detects CPU model, GPU brand, and VRAM at startup.
+- **Vendor-Themed Aesthetics:** Color-codes metrics by hardware vendor:
   - **Intel:** Radiant Blue
   - **AMD:** Crimson Red
   - **NVIDIA:** Neon Green
   - **RAM:** Electric Purple
   - **FPS:** Gold Yellow
-- **Multiple Layout Themes:** Switch between a modern vertical "Default" stack, or the compact horizontal "Classic" layout.
-- **Window Management & Drag Protection:**
-  - Dragging the overlay is strictly restricted to holding the floating **Settings button (`⚙`)**, preventing accidental moves during stream or gaming sessions.
+- **Multiple Layout Themes:** Switch between a modern vertical "Default" stack or the compact horizontal "Classic" layout.
 - **Click-Through & Right-Alt Bypass:**
-  - **Click-Through Mode:** Pass all mouse clicks through the overlay to underlying games and applications.
-  - **Right-Alt Quick Bypass:** While Click-Through is active, holding down **Right-Alt** temporarily restores mouse interactivity with an ambient cyan glow.
-- **Proportional Corner-Only Scaling:**
-  - Side borders are blocked from resizing at the Win32 OS level (`WM_NCHITTEST`).
-  - Resizing from any of the 4 corner handles smoothly scales the entire layout uniformly using dynamic Win32 aspect ratio locking (`WM_SIZING`).
-- **Adaptive Height & Safeguards:**
-  - Toggling display cards (CPU, GPU, RAM, FPS) dynamically shrinks or expands the window height.
-  - Automatically enforces a minimum of 1 active monitor card so the window can never be accidentally hidden or lost.
-- **Window State Persistence:** Scale factor, window position, card visibility, theme, and Always-on-Top states are saved across sessions.
+  - **Click-Through Mode:** Pass all mouse clicks through the overlay to underlying games.
+  - **Right-Alt Quick Bypass:** While Click-Through is active, hold **Right Alt** to temporarily restore mouse interaction.
+- **Proportional Corner-Only Scaling:** Resize only from corners to maintain aspect ratio. Side borders are locked at the Win32 level.
+- **Adaptive Height:** Toggling display cards (CPU, GPU, RAM, FPS) dynamically shrinks or expands the window.
+- **Window State Persistence:** Scale, position, card visibility, theme, and Always-on-Top state are saved across sessions.
 
 ---
 
 ## Requirements
 
 1. **Windows 10 / 11 (64-bit)**
-2. **LibreHardwareMonitor** (Must be running with the Web Server enabled on port 8085)
-3. **RTSS (RivaTuner Statistics Server)** (Must be running for FPS and Frametime metrics)
+2. **Run as Administrator** — required for LibreHardwareMonitor hardware sensor access and Intel PresentMon ETW tracing.
+
+That's it. No RTSS. No standalone LibreHardwareMonitor. Everything is bundled.
 
 ---
 
 ## Setup with OBS Studio
 
-1. Launch **LibreHardwareMonitor** and install the PawnIO if there is pop up (Ensure Options -> Web Server -> Run is checked).
-2. Launch **RTSS**.
-3. Launch **PerfMon OBS**.
-4. In **OBS Studio**, add a new **Window Capture** source to your scene.
-5. Set the window to: `[perfmon-obs.exe]: PerfMon OBS`.
-6. Capture Method: **Windows 10 (1903 and up)**.
-7. The transparent background and rounded widget will composite cleanly over your gameplay or stream layout.
+1. Launch **PerfMon OBS** as Administrator.
+2. In **OBS Studio**, add a new **Window Capture** source to your scene.
+3. Set the window to: `[perfmon-obs.exe]: PerfMon OBS`.
+4. Capture Method: **Windows 10 (1903 and up)**.
+5. The transparent background and rounded widget will composite cleanly over your gameplay or stream layout.
+
+---
+
+## Usage
+
+- **Settings (`⚙`):** Toggle which metrics show (CPU, GPU, RAM, FPS), change the theme, and control window behavior.
+- **Always on Top:** Keeps the overlay above all other windows including fullscreen games (windowed/borderless).
+- **Click Through:** Passes all mouse input through to the game. Hold **Right Alt** to temporarily interact with the overlay without disabling click-through.
 
 ---
 
@@ -61,7 +69,8 @@ Zero Python runtimes, zero complex setups, zero external network dependencies.
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) (v18+)
-- [Rust](https://rustup.rs/) (stable toolchain)
+- [Rust](https://rustup.rs/) (stable toolchain, `x86_64-pc-windows-msvc`)
+- [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) — for the LHM sidecar
 
 ### Run in Development Mode
 
@@ -69,29 +78,47 @@ Zero Python runtimes, zero complex setups, zero external network dependencies.
 # Install frontend dependencies
 npm install
 
+# Build the LHM sidecar (only needed once, or after sidecar changes)
+npm run build:sidecar
+
 # Start development overlay with live-reload
 npm run tauri dev
 ```
 
-### Build Standalone Production Executable
+### Build Production Installer
 
 ```powershell
 npm run tauri build
 ```
 
-The compiled, standalone `.exe` and installers will be generated in:
+The sidecar is built automatically before the production build. The NSIS installer and standalone `.exe` are generated at:
 
 ```
-src-tauri/target/release/
+src-tauri/target/release/bundle/nsis/
+src-tauri/target/release/perfmon-obs.exe
 ```
+
+### Other Scripts
+
+| Command                 | Description                                             |
+| ----------------------- | ------------------------------------------------------- |
+| `npm run build:sidecar` | Build & deploy LHM sidecar to Tauri target dirs         |
+| `npm run portable`      | Package a portable ZIP (no installer)                   |
+| `npm run clean`         | Delete build artifacts (dist, Rust target, .NET output) |
 
 ---
 
-## About Usage
+## Architecture
 
-- **Settings:** Click the `⚙` button to control how many parameters show, the theme, and how the window acts.
-- **Always on top:** If checked, the window will always be on top of all other windows.
-- **Click through:** If checked, the window will pass all mouse clicks through to the underlying applications. To bypass this temporarily and interact with the overlay settings, hold the **Right Alt** key.
+```
+perfmon-obs.exe  (Tauri v2 + Rust)
+├── lhm-sidecar.exe   (.NET 9, LibreHardwareMonitorLib — hardware sensors)
+└── PresentMon-x64.exe  (Intel PresentMon — FPS via ETW)
+```
+
+Both sidecars are launched as child processes at startup and killed automatically when the overlay closes.
+
+---
 
 ## License
 
