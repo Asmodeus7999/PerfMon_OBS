@@ -9,6 +9,10 @@ src-tauri/target/
 target/
 **/*.rs.bk
 
+# .NET Sidecar build output (keep sidecar/bin/PresentMon-*.exe)
+sidecar/bin/Release/
+sidecar/obj/
+
 # OS & Temp files
 Thumbs.db
 Desktop.ini

@@ -8,7 +8,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "portable": "node scripts/portable.js"
+    "portable": "node scripts/portable.js",
+    "build:sidecar": "node scripts/build-sidecar.js",
+    "clean": "node scripts/clean.js",
+    "clean:deep": "node scripts/clean.js && cargo clean --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {
     "@tauri-apps/api": "^2"

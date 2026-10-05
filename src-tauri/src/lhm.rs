@@ -1,13 +1,25 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// lhm.rs — LibreHardwareMonitor Web Server reader
+// lhm.rs — LibreHardwareMonitor data reader (dual-mode)
 //
-// Replaces WMI querying with HTTP JSON parsing from the Local Web Server
-// built into LibreHardwareMonitor (Options > Remote Web Server).
-// This fixes known issues where LHM's WMI broadcaster crashes on modern PCs.
+// Supports two modes for reading hardware sensor data:
+//
+//   1. **Sidecar mode** (preferred): Reads JSON lines from the bundled
+//      lhm-sidecar.exe process via stdout. This is the zero-config path —
+//      no separate LHM installation needed.
+//
+//   2. **Web server mode** (fallback): Connects to LHM's built-in HTTP
+//      JSON endpoint at http://localhost:8085/data.json. Used when the
+//      sidecar is unavailable or the user prefers running LHM standalone.
+//
+// Both modes produce the same LhmNode tree, so the downstream sensor
+// mapping logic is shared.
 // ─────────────────────────────────────────────────────────────────────────────
 
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::io::BufRead;
+use std::process::{Child, Command, Stdio};
+use std::sync::mpsc;
 
 use crate::{SensorEntry, GpuInfo};
 
@@ -26,31 +38,170 @@ pub struct LhmNode {
     pub children: Vec<LhmNode>,
 }
 
-pub struct LhmReader {}
+// ── Sidecar data source ──────────────────────────────────────────────────────
+
+/// Manages the lhm-sidecar.exe child process and reads JSON lines from stdout.
+struct SidecarSource {
+    _child: Child,
+    rx: mpsc::Receiver<String>,
+    latest_line: Option<String>,
+}
+
+impl SidecarSource {
+    fn spawn() -> Option<Self> {
+        // Locate the sidecar binary next to our own executable
+        let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+        let sidecar_path = exe_dir.join("lhm-sidecar.exe");
+
+        if !sidecar_path.exists() {
+            println!("[LHM] Sidecar not found at: {}", sidecar_path.display());
+            return None;
+        }
+
+        println!("[LHM] Launching sidecar: {}", sidecar_path.display());
+
+        #[cfg(target_os = "windows")]
+        let child = {
+            use std::os::windows::process::CommandExt;
+            Command::new(&sidecar_path)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .stdin(Stdio::null())
+                .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                .spawn()
+        };
+
+        #[cfg(not(target_os = "windows"))]
+        let child = Command::new(&sidecar_path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .stdin(Stdio::null())
+            .spawn();
+
+        let mut child = match child {
+            Ok(c) => c,
+            Err(e) => {
+                println!("[LHM] Failed to spawn sidecar: {}", e);
+                return None;
+            }
+        };
+
+        let stdout = child.stdout.take()?;
+        let stderr = child.stderr.take();
+
+        // Channel for passing JSON lines from the reader thread
+        let (tx, rx) = mpsc::channel::<String>();
+
+        // Stdout reader thread — reads JSON lines and sends them via channel
+        std::thread::spawn(move || {
+            let reader = std::io::BufReader::new(stdout);
+            for line in reader.lines() {
+                match line {
+                    Ok(l) if !l.trim().is_empty() => {
+                        if tx.send(l).is_err() {
+                            break; // receiver dropped
+                        }
+                    }
+                    Err(_) => break,
+                    _ => {}
+                }
+            }
+        });
+
+        // Stderr reader thread — forwards sidecar logs to our console
+        if let Some(stderr) = stderr {
+            std::thread::spawn(move || {
+                let reader = std::io::BufReader::new(stderr);
+                for line in reader.lines() {
+                    match line {
+                        Ok(l) => println!("{}", l),
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
+
+        Some(Self {
+            _child: child,
+            rx,
+            latest_line: None,
+        })
+    }
+
+    /// Drain the channel and keep only the most recent JSON line.
+    fn poll(&mut self) -> Option<&str> {
+        // Drain all available messages, keeping only the latest
+        while let Ok(line) = self.rx.try_recv() {
+            self.latest_line = Some(line);
+        }
+        self.latest_line.as_deref()
+    }
+}
+
+impl Drop for SidecarSource {
+    fn drop(&mut self) {
+        let _ = self._child.kill();
+    }
+}
+
+// ── Web server data source (existing fallback) ──────────────────────────────
+
+fn fetch_from_web_server() -> Option<LhmNode> {
+    let res = ureq::get("http://localhost:8085/data.json")
+        .timeout(std::time::Duration::from_millis(2000))
+        .call()
+        .ok()?;
+    res.into_json().ok()
+}
+
+// ── Public reader ────────────────────────────────────────────────────────────
+
+pub struct LhmReader {
+    sidecar: Option<SidecarSource>,
+    sidecar_attempted: bool,
+}
 
 unsafe impl Send for LhmReader {}
 unsafe impl Sync for LhmReader {}
 
 impl LhmReader {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            sidecar: None,
+            sidecar_attempted: false,
+        }
     }
 
     pub fn get_data(&mut self) -> Option<(Vec<SensorEntry>, Vec<GpuInfo>)> {
-        // Fetch JSON from LHM local web server
-        let res = match ureq::get("http://localhost:8085/data.json")
-            .timeout(std::time::Duration::from_millis(2000))
-            .call()
-        {
-            Ok(r) => r,
-            Err(_) => return None,
-        };
+        // Try sidecar first
+        if let Some(root) = self.try_sidecar() {
+            return Self::parse_tree(root);
+        }
 
-        let root: LhmNode = match res.into_json() {
-            Ok(json) => json,
-            Err(_) => return None,
-        };
+        // Fall back to web server
+        if let Some(root) = fetch_from_web_server() {
+            return Self::parse_tree(root);
+        }
 
+        None
+    }
+
+    fn try_sidecar(&mut self) -> Option<LhmNode> {
+        // Attempt to spawn the sidecar once
+        if self.sidecar.is_none() && !self.sidecar_attempted {
+            self.sidecar_attempted = true;
+            self.sidecar = SidecarSource::spawn();
+        }
+
+        let sidecar = self.sidecar.as_mut()?;
+        let line = sidecar.poll()?;
+
+        serde_json::from_str::<LhmNode>(line).ok()
+    }
+
+    // ── Shared tree → sensor mapping (unchanged from original) ───────────────
+
+    fn parse_tree(root: LhmNode) -> Option<(Vec<SensorEntry>, Vec<GpuInfo>)> {
         let mut entries = Vec::new();
         let mut gpus = HashMap::new();
 
@@ -121,8 +272,7 @@ impl LhmReader {
                     }
                 } else if is_ram && !lower_hid.contains("vram") {
                     match t.as_str() {
-                        "Load"        if lower_name.contains("memory") => Some(0x91),
-                        "Data"        if lower_name == "used memory" || lower_name == "memory used" => Some(0x91),
+                        "Data" if lower_name == "used memory" || lower_name == "memory used" || lower_name == "memory" => Some(0x91),
                         _ => None
                     }
                 } else {

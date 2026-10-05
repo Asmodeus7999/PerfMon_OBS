@@ -7,7 +7,7 @@
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "beforeBuildCommand": "npm run build:sidecar && npm run build"
   },
   "app": {
     "windows": [
@@ -42,6 +42,10 @@
       "icons/icon.ico",
       "icons/icon.png"
     ],
+    "resources": {
+      "target/release/lhm-sidecar.exe": ".",
+      "target/release/PresentMon-x64.exe": "."
+    },
     "windows": {
       "nsis": {
         "installMode": "perMachine",

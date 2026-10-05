@@ -45,6 +45,23 @@ if (existsSync(stageDir)) {
 mkdirSync(stageDir, { recursive: true });
 
 copyFileSync(exeSource, join(stageDir, 'perfmon-obs.exe'));
+
+// Copy the LHM sidecar if it exists
+const sidecarSource = join(releaseDir, 'lhm-sidecar.exe');
+if (existsSync(sidecarSource)) {
+    copyFileSync(sidecarSource, join(stageDir, 'lhm-sidecar.exe'));
+    console.log('  ✓ lhm-sidecar.exe included');
+} else {
+    console.log('  ⚠ lhm-sidecar.exe not found — run "npm run build:sidecar" first');
+}
+
+// Copy the PresentMon sidecar if it exists
+const pmSource = join(releaseDir, 'PresentMon-x64.exe');
+if (existsSync(pmSource)) {
+    copyFileSync(pmSource, join(stageDir, 'PresentMon-x64.exe'));
+    console.log('  ✓ PresentMon-x64.exe included');
+}
+
 const readmePath = join(rootDir, 'README.md');
 if (existsSync(readmePath)) {
     copyFileSync(readmePath, join(stageDir, 'README.md'));
@@ -53,7 +70,7 @@ if (existsSync(readmePath)) {
 // 3. Create zip archive
 console.log(`[3/3] Creating portable ZIP archive: ${zipName}...`);
 try {
-    execSync(`tar -a -c -f "${zipPath}" -C "${stageDir}" perfmon-obs.exe README.md`, {
+    execSync(`tar -a -c -f "${zipPath}" -C "${stageDir}" .`, {
         stdio: 'inherit',
     });
 } catch (err) {

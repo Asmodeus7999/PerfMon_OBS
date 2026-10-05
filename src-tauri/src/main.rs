@@ -4,8 +4,8 @@
 
 fn main() {
     std::env::set_var(
-    "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-    "--use-angle=swiftshader"
-);
+        "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+        "--use-angle=swiftshader --force-device-scale-factor=1"
+    );
     perfmon_obs_lib::run();
 }
