@@ -28,7 +28,8 @@ windows-sys = { version = "0.52", features = [
     "Win32_Foundation",                # CloseHandle, HANDLE, BOOL
     "Win32_System_SystemInformation",  # GlobalMemoryStatusEx, MEMORYSTATUSEX
     "Win32_UI_Input_KeyboardAndMouse", # RegisterHotKey, MOD_CONTROL, etc.
-    "Win32_UI_WindowsAndMessaging",    # GetMessageW, WM_HOTKEY
+    "Win32_UI_WindowsAndMessaging",    # GetMessageW, WM_HOTKEY, GetForegroundWindow
+    "Win32_System_Threading",          # GetCurrentProcessId
 ] }
 # Safe high-level registry wrappers (CPU name, VRAM size)
 winreg = "0.52"
