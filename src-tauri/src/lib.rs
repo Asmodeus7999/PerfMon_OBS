@@ -175,36 +175,38 @@ pub fn run() {
                                 wparam: WPARAM,
                                 lparam: LPARAM,
                             ) -> LRESULT {
-                                const WM_SIZING: u32 = 0x0214;
-                                let prev: WNDPROC = std::mem::transmute(PREV_PROC.load(Ordering::Relaxed));
+                                unsafe {
+                                    const WM_SIZING: u32 = 0x0214;
+                                    let prev: WNDPROC = std::mem::transmute(PREV_PROC.load(Ordering::Relaxed));
 
-                                // Block side resizing: turn side hits (left/right/top/bottom) into client hits
-                                if msg == WM_NCHITTEST {
-                                    let hit = CallWindowProcW(prev, hwnd, msg, wparam, lparam);
-                                    let is_side = [HTLEFT, HTRIGHT, HTTOP, HTBOTTOM]
-                                        .iter()
-                                        .any(|&h| hit == h as isize);
-                                    return if is_side { HTCLIENT as isize } else { hit };
+                                    // Block side resizing: turn side hits (left/right/top/bottom) into client hits
+                                    if msg == WM_NCHITTEST {
+                                        let hit = CallWindowProcW(prev, hwnd, msg, wparam, lparam);
+                                        let is_side = [HTLEFT, HTRIGHT, HTTOP, HTBOTTOM]
+                                            .iter()
+                                            .any(|&h| hit == h as isize);
+                                        return if is_side { HTCLIENT as isize } else { hit };
+                                    }
+
+                                    // Enforce the current aspect ratio while a corner is dragged
+                                    if msg == WM_SIZING {
+                                        let rect = &mut *(lparam as *mut RECT);
+                                        let base_h = BASE_HEIGHT.load(Ordering::Relaxed).max(20) as f32;
+                                        let base_w = BASE_WIDTH.load(Ordering::Relaxed).max(1) as f32;
+                                        let (l, t, r, b) = resize::fit_aspect(
+                                            wparam as u32,
+                                            (rect.left, rect.top, rect.right, rect.bottom),
+                                            base_h / base_w,
+                                        );
+                                        rect.left = l;
+                                        rect.top = t;
+                                        rect.right = r;
+                                        rect.bottom = b;
+                                        return 1;
+                                    }
+
+                                    CallWindowProcW(prev, hwnd, msg, wparam, lparam)
                                 }
-
-                                // Enforce the current aspect ratio while a corner is dragged
-                                if msg == WM_SIZING {
-                                    let rect = &mut *(lparam as *mut RECT);
-                                    let base_h = BASE_HEIGHT.load(Ordering::Relaxed).max(20) as f32;
-                                    let base_w = BASE_WIDTH.load(Ordering::Relaxed).max(1) as f32;
-                                    let (l, t, r, b) = resize::fit_aspect(
-                                        wparam as u32,
-                                        (rect.left, rect.top, rect.right, rect.bottom),
-                                        base_h / base_w,
-                                    );
-                                    rect.left = l;
-                                    rect.top = t;
-                                    rect.right = r;
-                                    rect.bottom = b;
-                                    return 1;
-                                }
-
-                                CallWindowProcW(prev, hwnd, msg, wparam, lparam)
                             }
 
                             let prev = SetWindowLongPtrW(

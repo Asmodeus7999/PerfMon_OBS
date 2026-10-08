@@ -224,7 +224,7 @@ impl LhmReader {
             }
 
             // Check if this node is a Sensor (has a Type) and has a known hardware parent
-            if let (Some(ref t), Some(ref hid)) = (&node.type_name, &hw_id) {
+            if let (Some(t), Some(hid)) = (&node.type_name, &hw_id) {
                 let lower_hid = hid.to_lowercase();
                 let lower_name = node.text.to_lowercase();
                 

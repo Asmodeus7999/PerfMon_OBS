@@ -1,9 +1,9 @@
 [package]
 name = "perfmon-obs"
-version = "1.1.1"
+version = "1.1.2"
 description = "PerfMon OBS - Hardware Monitor Overlay for OBS Studio"
-authors = []
-edition = "2021"
+authors = ["Asmodeus7999"]
+edition = "2024"
 
 # This is the lib crate name that main.rs calls into. Tauri v2 convention:
 # main.rs is a thin launcher; all logic lives in lib.rs.
