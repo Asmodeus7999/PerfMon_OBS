@@ -7,16 +7,19 @@
 
 mod lhm;
 mod presentmon;
+mod resize;
 mod sysinfo;
 
 use lhm::LhmReader;
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
 use tauri::Emitter;
 
 static CLICKTHROUGH_ACTIVE: AtomicBool = AtomicBool::new(false);
 static BASE_WIDTH: AtomicU32 = AtomicU32::new(300);
 static BASE_HEIGHT: AtomicU32 = AtomicU32::new(490);
+/// Original window procedure, saved when the main window is subclassed (0 = none).
+static PREV_PROC: AtomicIsize = AtomicIsize::new(0);
 
 #[tauri::command]
 fn set_clickthrough_active(active: bool) {
@@ -31,9 +34,8 @@ fn set_base_size(width: u32, height: u32) {
 
 // ── Payload types (JSON-serialised and sent to the frontend) ──────────────────
 
-/// Full data payload emitted on the "sensor-update" Tauri event every second.
-/// Matches the JSON structure that the existing overlay/script.js already parses
-/// (`payload.sensors`, `payload.system_info`) so the frontend code barely changes.
+/// One sensor reading. Part of the payload emitted on the "sensor-update" event;
+/// `srcId` is the numeric id the frontend (`src/modules/state.js`, `SRC`) looks sensors up by.
 #[derive(Serialize, Clone, Debug)]
 pub struct SensorEntry {
     pub name: String,
@@ -52,6 +54,7 @@ pub struct GpuInfo {
     pub vram_gb: Option<f32>,
 }
 
+/// Full payload emitted on the "sensor-update" Tauri event every second.
 #[derive(Serialize, Clone, Debug)]
 struct SensorPayload {
     sensors: Vec<SensorEntry>,
@@ -68,7 +71,8 @@ pub fn run() {
 
             // ── Background polling thread ─────────────────────────────────────
             // Runs independently of the async Tauri runtime.
-            // Polls shared memory every 1 second and emits events to the frontend.
+            // Polls the LibreHardwareMonitor sidecar every second, attaches the latest
+            // PresentMon FPS reading, and emits the result to the frontend.
             std::thread::spawn(move || {
                 let mut lhm = LhmReader::new();
                 let pm = presentmon::PresentMonReader::new();
@@ -164,71 +168,42 @@ pub fn run() {
                                 ex_style | WS_EX_NOACTIVATE as isize,
                             );
 
-                            static mut PREV_PROC: WNDPROC = None;
-
                             unsafe extern "system" fn corner_only_wndproc(
                                 hwnd: HWND,
                                 msg: u32,
                                 wparam: WPARAM,
                                 lparam: LPARAM,
                             ) -> LRESULT {
-                                // Block side resizing: convert HTLEFT, HTRIGHT, HTTOP, HTBOTTOM to HTCLIENT
+                                const WM_SIZING: u32 = 0x0214;
+                                let prev: WNDPROC = std::mem::transmute(PREV_PROC.load(Ordering::Relaxed));
+
+                                // Block side resizing: turn side hits (left/right/top/bottom) into client hits
                                 if msg == WM_NCHITTEST {
-                                    let hit = CallWindowProcW(PREV_PROC, hwnd, msg, wparam, lparam);
-                                    if hit == HTLEFT as isize
-                                        || hit == HTRIGHT as isize
-                                        || hit == HTTOP as isize
-                                        || hit == HTBOTTOM as isize
-                                    {
-                                        return HTCLIENT as isize;
-                                    }
-                                    return hit;
+                                    let hit = CallWindowProcW(prev, hwnd, msg, wparam, lparam);
+                                    let is_side = [HTLEFT, HTRIGHT, HTTOP, HTBOTTOM]
+                                        .iter()
+                                        .any(|&h| hit == h as isize);
+                                    return if is_side { HTCLIENT as isize } else { hit };
                                 }
 
-                                // Enforce dynamic aspect ratio during corner resizing
-                                if msg == 0x0214 { // WM_SIZING
-                                    let rect = lparam as *mut RECT;
-                                    let width = (*rect).right - (*rect).left;
-                                    let height = (*rect).bottom - (*rect).top;
+                                // Enforce the current aspect ratio while a corner is dragged
+                                if msg == WM_SIZING {
+                                    let rect = &mut *(lparam as *mut RECT);
                                     let base_h = BASE_HEIGHT.load(Ordering::Relaxed).max(20) as f32;
                                     let base_w = BASE_WIDTH.load(Ordering::Relaxed).max(1) as f32;
-                                    let ratio: f32 = base_h / base_w;
-
-                                    match wparam as u32 {
-                                        8 => { // WMSZ_BOTTOMRIGHT
-                                            if (height as f32 / width as f32) > ratio {
-                                                (*rect).right = (*rect).left + (height as f32 / ratio).round() as i32;
-                                            } else {
-                                                (*rect).bottom = (*rect).top + (width as f32 * ratio).round() as i32;
-                                            }
-                                        }
-                                        7 => { // WMSZ_BOTTOMLEFT
-                                            if (height as f32 / width as f32) > ratio {
-                                                (*rect).left = (*rect).right - (height as f32 / ratio).round() as i32;
-                                            } else {
-                                                (*rect).bottom = (*rect).top + (width as f32 * ratio).round() as i32;
-                                            }
-                                        }
-                                        5 => { // WMSZ_TOPRIGHT
-                                            if (height as f32 / width as f32) > ratio {
-                                                (*rect).right = (*rect).left + (height as f32 / ratio).round() as i32;
-                                            } else {
-                                                (*rect).top = (*rect).bottom - (width as f32 * ratio).round() as i32;
-                                            }
-                                        }
-                                        4 => { // WMSZ_TOPLEFT
-                                            if (height as f32 / width as f32) > ratio {
-                                                (*rect).left = (*rect).right - (height as f32 / ratio).round() as i32;
-                                            } else {
-                                                (*rect).top = (*rect).bottom - (width as f32 * ratio).round() as i32;
-                                            }
-                                        }
-                                        _ => {}
-                                    }
+                                    let (l, t, r, b) = resize::fit_aspect(
+                                        wparam as u32,
+                                        (rect.left, rect.top, rect.right, rect.bottom),
+                                        base_h / base_w,
+                                    );
+                                    rect.left = l;
+                                    rect.top = t;
+                                    rect.right = r;
+                                    rect.bottom = b;
                                     return 1;
                                 }
 
-                                CallWindowProcW(PREV_PROC, hwnd, msg, wparam, lparam)
+                                CallWindowProcW(prev, hwnd, msg, wparam, lparam)
                             }
 
                             let prev = SetWindowLongPtrW(
@@ -236,7 +211,7 @@ pub fn run() {
                                 GWLP_WNDPROC,
                                 corner_only_wndproc as *const () as isize,
                             );
-                            PREV_PROC = std::mem::transmute(prev);
+                            PREV_PROC.store(prev, Ordering::Relaxed);
                         }
                     }
                 }

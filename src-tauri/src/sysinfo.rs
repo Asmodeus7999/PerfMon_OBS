@@ -1,10 +1,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // sysinfo.rs — Windows system information helpers
 //
-// Ported from the Python helper functions in afterburner_server.py:
-//   _get_cpu_name()            → get_cpu_name()
-//   _get_total_ram_gb()        → get_total_ram_gb()
-//   _get_dedicated_vram_gb()   → get_dedicated_vram_gb()   (called by afterburner.rs)
+// Static hardware info (CPU name, total RAM, dedicated VRAM) read once from the
+// registry / Win32 and cached by lib.rs. VRAM is looked up for the GPUs that
+// lhm.rs discovers.
 //
 // RAM-type detection is omitted — it was only used in a console log, not shown
 // in the UI. Can be added later via the `wmi` crate if needed.
@@ -28,7 +27,7 @@ pub struct SystemInfo {
 
 // ── System info builder ───────────────────────────────────────────────────────
 
-/// Assemble static hardware info from Windows APIs + Afterburner GPU entries.
+/// Assemble static hardware info from Windows APIs + the GPUs discovered by lhm.rs.
 ///
 /// Returns `None` until all GPUs have a valid VRAM reading so the frontend
 /// always shows complete data (mirrors the Python caching logic).
@@ -117,7 +116,7 @@ pub fn get_total_ram_gb() -> u32 {
     }
 }
 
-// ── Dedicated VRAM (called from afterburner.rs while building GpuInfo) ───────
+// ── Dedicated VRAM (called from lhm.rs while building GpuInfo) ───────────────
 
 /// Read dedicated VRAM in GB from the Windows display adapter registry key.
 ///

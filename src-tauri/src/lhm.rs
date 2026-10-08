@@ -246,7 +246,7 @@ impl LhmReader {
                     }
                 }
 
-                // Map LHM node to Afterburner SRC ID
+                // Map LHM node to the numeric SRC id the frontend expects (see state.js)
                 let src_id = if is_gpu {
                     match t.as_str() {
                         "Temperature" if lower_name.contains("core") => Some(0x00),
@@ -301,7 +301,7 @@ impl LhmReader {
                         let mut final_units = units;
 
                         if id == 0x91 && t == "Data" {
-                            // LHM web server outputs RAM in GB, Afterburner uses MB.
+                            // LHM web server outputs RAM in GB; the frontend expects MB.
                             final_value *= 1024.0;
                             final_units = "MB".to_string();
                         }

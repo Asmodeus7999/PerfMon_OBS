@@ -1,3 +1,12 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// presentmon.rs — FPS / frametime via the PresentMon sidecar (ETW, no injection)
+//
+// PresentMon prints one CSV row per presented frame for *every* process.
+// We aggregate rows per (ProcessID, SwapChainAddress) in 500 ms windows and
+// pick the game with a simple score (see `evaluate`): foreground window first,
+// FPS only as a capped tiebreak, with hysteresis so the lock never flaps.
+// ─────────────────────────────────────────────────────────────────────────────
+
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
@@ -16,12 +25,57 @@ pub struct FpsData {
     pub frame_time_ms: f32,
 }
 
+/// Known non-game processes (lowercase). Matched against PresentMon's `Application` column.
+const IGNORED_APPS: &[&str] = &[
+    "dwm.exe", "explorer.exe", "searchapp.exe", "searchhost.exe",
+    "startmenuexperiencehost.exe", "shellexperiencehost.exe",
+    "taskmgr.exe", "applicationframehost.exe", "systemsettings.exe",
+    "windowsterminal.exe", "msedgewebview2.exe", "msedge.exe",
+    "chrome.exe", "firefox.exe", "opera.exe", "brave.exe",
+    "textinputhost.exe", "lockapp.exe", "perfmon-obs.exe",
+    "video.ui.exe", "widgets.exe", "gamebar.exe",
+    "gamebarpresencewriter.exe", "gamebarftserver.exe",
+    // Game launcher helpers (not actual games)
+    "hyphelper.exe", "launcher.exe", "crashhandler.exe",
+    "epicgameslauncher.exe", "steamwebhelper.exe",
+    "eadesktop.exe", "eabackgroundservice.exe",
+    "ubisoftconnect.exe", "galaxyclient.exe",
+    "riotclientservices.exe", "obs64.exe",
+];
+
+const WINDOW: Duration = Duration::from_millis(500);
+const IDLE_UNLOCK: Duration = Duration::from_secs(2);
+const MIN_FRAMES: u32 = 3; // frames needed in a window before a key counts
+const MIN_FPS: f32 = 10.0; // slower than this never wins a lock
+const FOREGROUND_BONUS: i32 = 100;
+const LOCK_BONUS: i32 = 5; // stickiness: stops near-ties from flip-flopping
+const SWITCH_WINDOWS: u8 = 2; // challenger must win this many windows in a row
+
 /// One swap chain of one process. Keying on the pair (not the exe name) keeps
 /// frames from different swap chains of the same process from being averaged together.
-#[derive(Hash, Eq, PartialEq, Clone, Debug)]
+#[derive(Hash, Eq, PartialEq, Clone, Copy, Debug)]
 struct Key {
     pid: u32,
-    swap: String,
+    swap: u64,
+}
+
+/// Per-key info that is resolved once, not on every CSV row.
+struct Meta {
+    name: String,
+    ignored: bool,
+}
+
+/// Running totals for one key in the current window.
+#[derive(Default, Clone, Copy)]
+struct Acc {
+    sum_ms: f32,
+    frames: u32,
+}
+
+impl Acc {
+    fn avg_dt(&self) -> Option<f32> {
+        (self.frames >= MIN_FRAMES).then(|| self.sum_ms / self.frames as f32)
+    }
 }
 
 /// PID of the foreground window. Falls back to `last` when there is no foreground
@@ -51,12 +105,145 @@ fn foreground_pid(last: &mut u32) -> u32 {
     *last
 }
 
-fn publish(data: &Arc<Mutex<Option<FpsData>>>, fps: f32, avg_dt: f32) {
+fn publish(data: &Mutex<Option<FpsData>>, fps: f32, avg_dt: f32) {
     if let Ok(mut lock) = data.lock() {
         *lock = Some(FpsData {
             fps: (fps * 10.0).round() / 10.0,
             frame_time_ms: (avg_dt * 100.0).round() / 100.0,
         });
+    }
+}
+
+fn clear(data: &Mutex<Option<FpsData>>) {
+    if let Ok(mut lock) = data.lock() {
+        *lock = None;
+    }
+}
+
+fn name_of<'a>(known: &'a HashMap<Key, Meta>, key: &Key) -> &'a str {
+    known.get(key).map(|m| m.name.as_str()).unwrap_or("?")
+}
+
+fn parse_swap(s: &str) -> u64 {
+    u64::from_str_radix(s.trim().trim_start_matches("0x").trim_start_matches("0X"), 16).unwrap_or(0)
+}
+
+/// Lock / challenger state carried between windows.
+#[derive(Default)]
+struct Tracker {
+    locked: Option<Key>,
+    locked_since: Option<Instant>, // last time the locked key produced frames
+    challenger: Option<Key>,
+    challenger_wins: u8,
+}
+
+impl Tracker {
+    fn set_lock(&mut self, key: Key) {
+        self.locked = Some(key);
+        self.locked_since = Some(Instant::now());
+        self.challenger = None;
+        self.challenger_wins = 0;
+    }
+
+    /// Run once per window: score candidates, update the lock, publish FPS.
+    fn evaluate(
+        &mut self,
+        frames: &HashMap<Key, Acc>,
+        known: &HashMap<Key, Meta>,
+        fg: u32,
+        debug: bool,
+        out: &Mutex<Option<FpsData>>,
+    ) {
+        // best = (key, score, fps, avg_dt)
+        let mut best: Option<(Key, i32, f32, f32)> = None;
+        let mut locked_stats: Option<(f32, f32)> = None;
+
+        for (key, acc) in frames {
+            let Some(avg_dt) = acc.avg_dt() else { continue };
+            let fps = 1000.0 / avg_dt;
+            let is_locked = self.locked == Some(*key);
+            if is_locked {
+                locked_stats = Some((fps, avg_dt));
+            }
+            if fps < MIN_FPS {
+                continue;
+            }
+            let mut score = (fps.min(240.0) / 10.0) as i32;
+            if key.pid != 0 && key.pid == fg {
+                score += FOREGROUND_BONUS;
+            }
+            if is_locked {
+                score += LOCK_BONUS;
+            }
+            if debug {
+                println!(
+                    "[PM] {} pid={} swap={:#x} fps={:.0} score={}{}",
+                    name_of(known, key), key.pid, key.swap, fps, score,
+                    if is_locked { " (locked)" } else { "" }
+                );
+            }
+            let better = best
+                .as_ref()
+                .map_or(true, |b| score > b.1 || (score == b.1 && fps > b.2));
+            if better {
+                best = Some((*key, score, fps, avg_dt));
+            }
+        }
+
+        match (self.locked, best) {
+            // Nothing locked yet: take the best candidate.
+            (None, Some((key, _, fps, dt))) => {
+                println!("[PresentMon] Locked: {} pid={} ({:.0} FPS)", name_of(known, &key), key.pid, fps);
+                publish(out, fps, dt);
+                self.set_lock(key);
+            }
+
+            // The locked key is also the best: keep reporting it.
+            (Some(cur), Some((key, _, fps, dt))) if cur == key => {
+                publish(out, fps, dt);
+                self.set_lock(key);
+            }
+
+            // Someone else is winning: keep reporting the lock while it is active,
+            // and switch only after the challenger wins several windows in a row.
+            (Some(cur), Some((key, _, fps, dt))) => {
+                if let Some((lfps, ldt)) = locked_stats {
+                    publish(out, lfps, ldt);
+                    self.locked_since = Some(Instant::now());
+                }
+                if self.challenger == Some(key) {
+                    self.challenger_wins += 1;
+                } else {
+                    self.challenger = Some(key);
+                    self.challenger_wins = 1;
+                }
+                if self.challenger_wins >= SWITCH_WINDOWS {
+                    println!(
+                        "[PresentMon] Switched: {} -> {} pid={} ({:.0} FPS)",
+                        name_of(known, &cur), name_of(known, &key), key.pid, fps
+                    );
+                    publish(out, fps, dt);
+                    self.set_lock(key);
+                }
+            }
+
+            // No candidate at all this window.
+            (Some(cur), None) => {
+                self.challenger = None;
+                self.challenger_wins = 0;
+                if let Some((lfps, ldt)) = locked_stats {
+                    // below MIN_FPS but still presenting: keep reporting it
+                    publish(out, lfps, ldt);
+                    self.locked_since = Some(Instant::now());
+                } else if self.locked_since.map_or(true, |t| t.elapsed() >= IDLE_UNLOCK) {
+                    println!("[PresentMon] Unlocked: {}", name_of(known, &cur));
+                    self.locked = None;
+                    clear(out);
+                }
+            }
+
+            (None, None) => {}
+        }
     }
 }
 
@@ -78,10 +265,10 @@ impl PresentMonReader {
         println!("[PresentMon] Launching sidecar: {}", pm_path.display());
 
         let mut cmd = Command::new(pm_path);
-        cmd.args(&["--output_stdout", "--stop_existing_session"])
-           .stdout(Stdio::piped())
-           .stderr(Stdio::piped())
-           .stdin(Stdio::null());
+        cmd.args(["--output_stdout", "--stop_existing_session"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .stdin(Stdio::null());
 
         #[cfg(target_os = "windows")]
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
@@ -97,8 +284,7 @@ impl PresentMonReader {
         // Log stderr in a separate thread
         if let Some(stderr) = child.stderr.take() {
             thread::spawn(move || {
-                let reader = BufReader::new(stderr);
-                for line in reader.lines().flatten() {
+                for line in BufReader::new(stderr).lines().map_while(Result::ok) {
                     if !line.is_empty() {
                         println!("[PresentMon-stderr] {}", line);
                     }
@@ -106,7 +292,7 @@ impl PresentMonReader {
             });
         }
 
-        let stdout = child.stdout.take().expect("Failed to grab stdout");
+        let stdout = child.stdout.take()?;
         let latest_data = Arc::new(Mutex::new(None));
         let thread_data = latest_data.clone();
 
@@ -114,55 +300,31 @@ impl PresentMonReader {
             let mut reader = BufReader::new(stdout);
             let mut line = String::new();
 
-            // Read Header
+            // Read header and locate the columns we need
             if reader.read_line(&mut line).is_err() || line.is_empty() {
                 println!("[PresentMon] Failed to read CSV header.");
                 return;
             }
-
             let headers: Vec<&str> = line.trim().split(',').collect();
-            let app_idx = headers.iter().position(|&h| h == "Application");
-            let ms_between_idx = headers.iter().position(|&h| h == "MsBetweenPresents");
-            // Optional: without ProcessID the foreground bonus simply never applies.
-            let pid_idx = headers.iter().position(|&h| h == "ProcessID");
-            let swap_idx = headers.iter().position(|&h| h == "SwapChainAddress");
+            let col = |name: &str| headers.iter().position(|&h| h == name);
+            let (Some(app_idx), Some(pid_idx), Some(ms_idx)) =
+                (col("Application"), col("ProcessID"), col("MsBetweenPresents"))
+            else {
+                println!("[PresentMon] Missing required CSV columns (Application/ProcessID/MsBetweenPresents).");
+                return;
+            };
+            let swap_idx = col("SwapChainAddress"); // optional
+            let max_idx = [app_idx, pid_idx, ms_idx, swap_idx.unwrap_or(0)]
+                .into_iter()
+                .max()
+                .unwrap_or(0);
             let debug = std::env::var("PERFMON_PM_DEBUG").is_ok();
 
-            if app_idx.is_none() || ms_between_idx.is_none() {
-                println!("[PresentMon] Failed to find required CSV columns in header.");
-                return;
-            }
-            let app_idx = app_idx.unwrap();
-            let ms_between_idx = ms_between_idx.unwrap();
-
-            // Known system/desktop/launcher processes to always ignore
-            let ignore_list: Vec<&str> = vec![
-                "dwm.exe", "explorer.exe", "searchapp.exe", "searchhost.exe",
-                "startmenuexperiencehost.exe", "shellexperiencehost.exe",
-                "taskmgr.exe", "applicationframehost.exe", "systemsettings.exe",
-                "windowsterminal.exe", "msedgewebview2.exe", "msedge.exe",
-                "chrome.exe", "firefox.exe", "opera.exe", "brave.exe",
-                "textinputhost.exe", "lockapp.exe", "perfmon-obs.exe",
-                "video.ui.exe", "widgets.exe", "gamebar.exe",
-                "gamebarpresencewriter.exe", "gamebarftserver.exe",
-                // Game launcher helpers (not actual games)
-                "hyphelper.exe", "launcher.exe", "crashhandler.exe",
-                "epicgameslauncher.exe", "steamwebhelper.exe",
-                "eadesktop.exe", "eabackgroundservice.exe",
-                "ubisoftconnect.exe", "galaxyclient.exe",
-                "riotclientservices.exe", "obs64.exe",
-            ];
-
-            // Frame times per (pid, swap chain) in the current measurement window
-            let mut frames: HashMap<Key, Vec<f32>> = HashMap::new();
-            let mut key_name: HashMap<Key, String> = HashMap::new();
+            let mut frames: HashMap<Key, Acc> = HashMap::new(); // this window only
+            let mut known: HashMap<Key, Meta> = HashMap::new(); // resolved once per key
+            let mut tracker = Tracker::default();
             let mut last_update = Instant::now();
             let mut last_fg: u32 = 0;
-
-            let mut locked: Option<Key> = None;
-            let mut locked_since = Instant::now(); // last time the locked key produced frames
-            let mut challenger: Option<Key> = None;
-            let mut challenger_wins: u8 = 0;
 
             loop {
                 line.clear();
@@ -171,160 +333,52 @@ impl PresentMonReader {
                     break;
                 }
 
-                let cols: Vec<&str> = line.trim().split(',').collect();
-                if cols.len() <= ms_between_idx {
-                    continue;
+                // Single pass over the row, no per-row Vec/String allocations.
+                let (mut app, mut pid, mut swap, mut dt) = (None, None, None, None);
+                for (i, field) in line.trim_end().split(',').enumerate() {
+                    if i == app_idx {
+                        app = Some(field);
+                    } else if i == pid_idx {
+                        pid = field.parse::<u32>().ok();
+                    } else if i == ms_idx {
+                        dt = field.parse::<f32>().ok();
+                    } else if Some(i) == swap_idx {
+                        swap = Some(parse_swap(field));
+                    }
+                    if i >= max_idx {
+                        break;
+                    }
                 }
 
-                let app = cols[app_idx].to_lowercase();
-
-                // Only collect frame data for non-system processes
-                if !ignore_list.iter().any(|&p| app == p) && !app.contains("antigravity") {
-                    if let Ok(dt) = cols[ms_between_idx].parse::<f32>() {
-                        if dt > 0.0 && dt < 1000.0 {
-                            let pid = pid_idx
-                                .and_then(|i| cols.get(i))
-                                .and_then(|v| v.parse::<u32>().ok())
-                                .unwrap_or(0);
-                            let swap = swap_idx
-                                .and_then(|i| cols.get(i))
-                                .map(|v| v.to_string())
-                                .unwrap_or_default();
-                            let key = Key { pid, swap };
-                            key_name.entry(key.clone()).or_insert_with(|| app.clone());
-                            let entry = frames.entry(key).or_insert_with(Vec::new);
-                            entry.push(dt);
-                            if entry.len() > 120 {
-                                entry.remove(0);
-                            }
+                if let (Some(app), Some(pid), Some(dt)) = (app, pid, dt) {
+                    if dt > 0.0 && dt < 1000.0 {
+                        let key = Key { pid, swap: swap.unwrap_or(0) };
+                        let meta = known.entry(key).or_insert_with(|| {
+                            let name = app.to_lowercase();
+                            let ignored = IGNORED_APPS.contains(&name.as_str()) || name.contains("antigravity");
+                            Meta { name, ignored }
+                        });
+                        if !meta.ignored {
+                            let acc = frames.entry(key).or_default();
+                            acc.sum_ms += dt;
+                            acc.frames += 1;
                         }
                     }
                 }
 
-                // Every 500ms, evaluate which app to report
-                if last_update.elapsed() < Duration::from_millis(500) {
+                if last_update.elapsed() < WINDOW {
                     continue;
                 }
                 last_update = Instant::now();
 
                 let fg = foreground_pid(&mut last_fg);
-
-                // Score every active candidate. Foreground wins; the current lock gets a
-                // small stickiness bonus so near-ties do not flip-flop; FPS is a capped tiebreak.
-                // best = (key, score, fps, avg_dt)
-                let mut best: Option<(Key, i32, f32, f32)> = None;
-                let mut locked_stats: Option<(f32, f32)> = None;
-                for (key, times) in &frames {
-                    if times.len() < 3 {
-                        continue;
-                    }
-                    let avg_dt = times.iter().sum::<f32>() / times.len() as f32;
-                    let fps = 1000.0 / avg_dt;
-                    if locked.as_ref() == Some(key) {
-                        locked_stats = Some((fps, avg_dt));
-                    }
-                    if fps < 10.0 {
-                        continue;
-                    }
-                    let mut score = (fps.min(240.0) / 10.0) as i32;
-                    if key.pid != 0 && key.pid == fg {
-                        score += 100;
-                    }
-                    if locked.as_ref() == Some(key) {
-                        score += 5;
-                    }
-                    if debug {
-                        println!(
-                            "[PM] {} pid={} swap={} fps={:.0} score={}{}",
-                            key_name.get(key).map(String::as_str).unwrap_or("?"),
-                            key.pid, key.swap, fps, score,
-                            if locked.as_ref() == Some(key) { " (locked)" } else { "" }
-                        );
-                    }
-                    let better = best.as_ref().map_or(true, |b| {
-                        score > b.1 || (score == b.1 && fps > b.2)
-                    });
-                    if better {
-                        best = Some((key.clone(), score, fps, avg_dt));
-                    }
-                }
-
-                match (&locked, best) {
-                    // Nothing locked yet: take the best candidate.
-                    (None, Some((key, _, fps, dt))) => {
-                        println!(
-                            "[PresentMon] Locked: {} pid={} ({:.0} FPS)",
-                            key_name.get(&key).map(String::as_str).unwrap_or("?"), key.pid, fps
-                        );
-                        publish(&thread_data, fps, dt);
-                        locked = Some(key);
-                        locked_since = Instant::now();
-                        challenger = None;
-                        challenger_wins = 0;
-                    }
-
-                    // The locked key is also the best: keep reporting it.
-                    (Some(cur), Some((key, _, fps, dt))) if *cur == key => {
-                        publish(&thread_data, fps, dt);
-                        locked_since = Instant::now();
-                        challenger = None;
-                        challenger_wins = 0;
-                    }
-
-                    // Someone else is winning: keep reporting the lock while it is active,
-                    // and switch only after the challenger wins 2 windows in a row.
-                    (Some(cur), Some((key, _, fps, dt))) => {
-                        if let Some((lfps, ldt)) = locked_stats {
-                            publish(&thread_data, lfps, ldt);
-                            locked_since = Instant::now();
-                        }
-                        if challenger.as_ref() == Some(&key) {
-                            challenger_wins += 1;
-                        } else {
-                            challenger = Some(key.clone());
-                            challenger_wins = 1;
-                        }
-                        if challenger_wins >= 2 {
-                            println!(
-                                "[PresentMon] Switched: {} -> {} pid={} ({:.0} FPS)",
-                                key_name.get(cur).map(String::as_str).unwrap_or("?"),
-                                key_name.get(&key).map(String::as_str).unwrap_or("?"),
-                                key.pid, fps
-                            );
-                            publish(&thread_data, fps, dt);
-                            locked = Some(key);
-                            locked_since = Instant::now();
-                            challenger = None;
-                            challenger_wins = 0;
-                        }
-                    }
-
-                    // No candidate at all this window.
-                    (Some(cur), None) => {
-                        challenger = None;
-                        challenger_wins = 0;
-                        if let Some((lfps, ldt)) = locked_stats {
-                            // below 10 FPS but still presenting: keep reporting it
-                            publish(&thread_data, lfps, ldt);
-                            locked_since = Instant::now();
-                        } else if locked_since.elapsed() >= Duration::from_secs(2) {
-                            println!(
-                                "[PresentMon] Unlocked: {}",
-                                key_name.get(cur).map(String::as_str).unwrap_or("?")
-                            );
-                            locked = None;
-                            if let Ok(mut lock) = thread_data.lock() {
-                                *lock = None;
-                            }
-                        }
-                    }
-
-                    (None, None) => {}
-                }
-
+                tracker.evaluate(&frames, &known, fg, debug, &thread_data);
                 frames.clear();
-                // forget names of keys that are neither locked nor challenging
-                key_name.retain(|k, _| locked.as_ref() == Some(k) || challenger.as_ref() == Some(k));
+
+                // Keep the name cache bounded (short-lived processes create many keys).
+                if known.len() > 1024 {
+                    known.retain(|k, _| tracker.locked == Some(*k) || tracker.challenger == Some(*k));
+                }
             }
         });
 

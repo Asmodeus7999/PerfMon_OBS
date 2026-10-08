@@ -18,7 +18,7 @@ Zero Python runtimes. Zero external network dependencies. No RTSS. No standalone
 - **Fully Embedded Telemetry — No Third-Party Apps Required:**
   - **Hardware Sensors:** CPU temp/load, GPU temp/load/VRAM, RAM usage, Power draw via an embedded **LibreHardwareMonitor** sidecar.
   - **Framerate Tracking:** FPS and frametime via **Intel PresentMon** using Windows ETW — completely passive, no process injection. Safe with all anti-cheats (Vanguard, EAC, BattlEye).
-  - **Automatic Game Detection:** Tracks all running processes simultaneously and always reports the highest-FPS app. No game list required.
+  - **Automatic Game Detection:** Tracks every presenting process and locks onto the one in the foreground (FPS only breaks ties), switching after about a second if you change games. A small built-in list ignores shell and launcher processes.
 - **OBS Compatible:** Uses `--use-angle=swiftshader` renderer to prevent OBS Game Capture black-screen issues.
 - **Dynamic Hardware Detection:** Auto-detects CPU model, GPU brand, and VRAM at startup.
 - **Vendor-Themed Aesthetics:** Color-codes metrics by hardware vendor:

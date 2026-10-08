@@ -4,9 +4,9 @@
  *
  * The sensor data structure emitted from Rust (SensorPayload) is intentionally
  * compatible with the old JSON format so the parsing logic is unchanged:
- *   payload.sensors        — array of SensorEntry  (same fields as Python)
+ *   payload.sensors        — array of SensorEntry
  *   payload.system_info    — { cpu_name, ram_gb, gpus: [{device, vram_gb}] }
- *   payload.fps            — { fps, frame_time_ms } | null  (new from RTSS)
+ *   payload.fps            — { fps, frame_time_ms } | null  (from PresentMon)
  */
 import { listen } from '@tauri-apps/api/event';
 import { dom, state, SRC } from './state.js';
@@ -21,11 +21,6 @@ function findBySrcId(data, srcId, gpuIndex = null) {
         if (gpuIndex !== null && e.gpu !== 0xFFFFFFFF && e.gpu !== gpuIndex) return false;
         return true;
     }) || null;
-}
-
-function findByName(sensors, name) {
-    const lower = name.toLowerCase();
-    return sensors.find(e => e.name && e.name.toLowerCase().includes(lower)) || null;
 }
 
 export function initSensors() {
@@ -77,18 +72,9 @@ export function initSensors() {
         setStat('ram-usage',  ramUsage, ramUsage?.units ?? 'MB');
         setStat('vram-usage', findBySrcId(data, SRC.MEMORY_USAGE, GPU));
 
-        // FPS from RTSS or Afterburner sensor fallback
-        let fpsVal   = payload.fps?.fps;
-        let ftimeVal = payload.fps?.frame_time_ms;
-
-        if (fpsVal == null || fpsVal <= 0) {
-            const fpsEntry = findByName(data, 'framerate');
-            if (fpsEntry && fpsEntry.value != null && fpsEntry.value > 0) fpsVal = fpsEntry.value;
-        }
-        if (ftimeVal == null || ftimeVal <= 0) {
-            const ftimeEntry = findByName(data, 'frametime');
-            if (ftimeEntry && ftimeEntry.value != null && ftimeEntry.value > 0) ftimeVal = ftimeEntry.value;
-        }
+        // FPS comes only from the PresentMon sidecar (null when no game is detected)
+        const fpsVal   = payload.fps?.fps;
+        const ftimeVal = payload.fps?.frame_time_ms;
 
         setFpsStat('fps',   fpsVal,   0);
         setFpsStat('ftime', ftimeVal, state.currentTheme === 'classic' ? 1 : 2);
