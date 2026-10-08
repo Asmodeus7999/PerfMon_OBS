@@ -24,6 +24,9 @@ ureq = { version = "2.9", features = ["json"] }
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.52", features = [
     "Win32_System_Memory",             # OpenFileMappingW, MapViewOfFile, UnmapViewOfFile
+    "Win32_System_JobObjects",         # job object that kills sidecars when we exit
+    "Win32_Security",                  # SECURITY_ATTRIBUTES param of CreateJobObjectW
+    "Win32_System_Threading",          # gates the job-object structs
     "Win32_Foundation",                # CloseHandle, HANDLE, BOOL
     "Win32_System_SystemInformation",  # GlobalMemoryStatusEx, MEMORYSTATUSEX
     "Win32_UI_Input_KeyboardAndMouse", # RegisterHotKey, MOD_CONTROL, etc.

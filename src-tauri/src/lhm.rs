@@ -86,6 +86,8 @@ impl SidecarSource {
             }
         };
 
+        crate::job::kill_on_exit(&child); // die with us, even if we crash or are killed
+
         let stdout = child.stdout.take()?;
         let stderr = child.stderr.take();
 

@@ -281,6 +281,8 @@ impl PresentMonReader {
             }
         };
 
+        crate::job::kill_on_exit(&child); // die with us, even if we crash or are killed
+
         // Log stderr in a separate thread
         if let Some(stderr) = child.stderr.take() {
             thread::spawn(move || {

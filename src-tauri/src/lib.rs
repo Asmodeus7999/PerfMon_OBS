@@ -5,6 +5,7 @@
 // sensor data to the frontend via Tauri events every ~1 second.
 // ─────────────────────────────────────────────────────────────────────────────
 
+mod job;
 mod lhm;
 mod presentmon;
 mod resize;
@@ -220,17 +221,22 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|_window, event| {
-            // When the main window is closed, explicitly kill all sidecar child processes
-            // then force-exit. NOTE: std::process::exit() bypasses Rust's Drop, so we
-            // cannot rely on the Drop impls in lhm.rs / presentmon.rs here.
+            // When the main window is closed, exit immediately. Sidecars are tied to a Job
+            // Object (job.rs), so Windows kills them when this process ends. NOTE:
+            // std::process::exit() bypasses Rust's Drop, so the Drop impls in lhm.rs /
+            // presentmon.rs do not run here.
             if let tauri::WindowEvent::Destroyed = event {
+                // Fallback only if the job object could not be created: kill by image name
+                // (this also kills any same-named process the user started themselves).
                 #[cfg(target_os = "windows")]
-                for proc in &["lhm-sidecar.exe", "PresentMon-x64.exe"] {
-                    use std::os::windows::process::CommandExt;
-                    let _ = std::process::Command::new("taskkill")
-                        .args(&["/F", "/IM", proc])
-                        .creation_flags(0x08000000) // CREATE_NO_WINDOW
-                        .output();
+                if !job::available() {
+                    for proc in &["lhm-sidecar.exe", "PresentMon-x64.exe"] {
+                        use std::os::windows::process::CommandExt;
+                        let _ = std::process::Command::new("taskkill")
+                            .args(&["/F", "/IM", proc])
+                            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                            .output();
+                    }
                 }
                 std::process::exit(0);
             }
