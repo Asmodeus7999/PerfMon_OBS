@@ -9,7 +9,7 @@ fn main() {
     unsafe {
         std::env::set_var(
             "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-            "--use-angle=swiftshader --force-device-scale-factor=1",
+            "--disable-features=Vulkan,DefaultANGLEVulkan,VulkanFromANGLE --use-angle=d3d11 --force-device-scale-factor=1",
         );
     }
     perfmon_obs_lib::run();
