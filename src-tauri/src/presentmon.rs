@@ -27,20 +27,34 @@ pub struct FpsData {
 
 /// Known non-game processes (lowercase). Matched against PresentMon's `Application` column.
 const IGNORED_APPS: &[&str] = &[
+    // Windows shell / system
     "dwm.exe", "explorer.exe", "searchapp.exe", "searchhost.exe",
     "startmenuexperiencehost.exe", "shellexperiencehost.exe",
     "taskmgr.exe", "applicationframehost.exe", "systemsettings.exe",
-    "windowsterminal.exe", "msedgewebview2.exe", "msedge.exe",
-    "chrome.exe", "firefox.exe", "opera.exe", "brave.exe",
-    "textinputhost.exe", "lockapp.exe", "perfmon-obs.exe",
+    "windowsterminal.exe", "textinputhost.exe", "lockapp.exe",
     "video.ui.exe", "widgets.exe", "gamebar.exe",
     "gamebarpresencewriter.exe", "gamebarftserver.exe",
-    // Game launcher helpers (not actual games)
+    "csrss.exe", "conhost.exe", "cmd.exe", "powershell.exe",
+    // Browsers
+    "msedgewebview2.exe", "msedge.exe", "chrome.exe", "firefox.exe",
+    "opera.exe", "brave.exe", "vivaldi.exe", "arc.exe", "zen.exe",
+    // Chat / media / Electron apps that render continuously
+    "discord.exe", "spotify.exe", "slack.exe", "teams.exe", "ms-teams.exe",
+    "code.exe", "vlc.exe", "mpv.exe", "potplayermini64.exe", "mpc-hc64.exe",
+    // Game launchers and helpers (not actual games)
     "hyphelper.exe", "launcher.exe", "crashhandler.exe",
-    "epicgameslauncher.exe", "steamwebhelper.exe",
-    "eadesktop.exe", "eabackgroundservice.exe",
-    "ubisoftconnect.exe", "galaxyclient.exe",
-    "riotclientservices.exe", "obs64.exe",
+    "epicgameslauncher.exe", "steamwebhelper.exe", "steam.exe",
+    "eadesktop.exe", "eabackgroundservice.exe", "ubisoftconnect.exe",
+    "galaxyclient.exe", "riotclientservices.exe", "battle.net.exe",
+    "xboxpcapp.exe", "overwolf.exe",
+    // Streaming / capture, and this app
+    "obs64.exe", "obs32.exe", "streamlabs desktop.exe", "perfmon-obs.exe",
+    // Wallpapers and widgets (present every frame)
+    "wallpaper32.exe", "wallpaper64.exe", "rainmeter.exe",
+    // Monitoring and tuning tools
+    "msiafterburner.exe", "rtss.exe", "hwinfo64.exe", "librehardwaremonitor.exe",
+    // Vendor control panels
+    "icue.exe", "lghub.exe", "nvidia app.exe", "nvidia share.exe", "radeonsoftware.exe",
 ];
 
 const WINDOW: Duration = Duration::from_millis(500);
