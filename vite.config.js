@@ -16,10 +16,8 @@ export default defineConfig({
   // Env prefix for Tauri: exposes TAURI_ENV_* to frontend
   envPrefix: ['VITE_', 'TAURI_ENV_*'],
   build: {
-    // Tauri uses Chromium on Windows (via WebView2 = Edge), so we can target modern Chrome
     target: 'chrome105',
-    // Don't minify for debug builds, so Rust can report actual file paths
-    minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
+    minify: !process.env.TAURI_ENV_DEBUG ? 'oxc' : false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
   },
 });
