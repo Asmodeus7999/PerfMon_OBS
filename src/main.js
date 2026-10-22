@@ -26,3 +26,6 @@ initBackgroundOpacity();
 initClickThrough();
 initSettingsPanel();
 initWindowControls();
+
+// Disable right-click context menu (prevents browser default menu in WebView)
+document.addEventListener('contextmenu', e => e.preventDefault());
