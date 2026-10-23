@@ -31,12 +31,7 @@ pub struct SystemInfo {
 ///
 /// Returns `None` until all GPUs have a valid VRAM reading so the frontend
 /// always shows complete data (mirrors the Python caching logic).
-pub fn build_system_info(gpu_infos: &[crate::GpuInfo]) -> Option<SystemInfo> {
-    // Don't cache yet if any GPU still has no VRAM reading
-    if gpu_infos.iter().any(|g| g.vram_gb.is_none()) {
-        return None;
-    }
-
+pub fn build_system_info(gpu_infos: &[crate::GpuInfo]) -> SystemInfo {
     let cpu_name = get_cpu_name();
     let ram_gb   = get_total_ram_gb();
 
@@ -46,16 +41,16 @@ pub fn build_system_info(gpu_infos: &[crate::GpuInfo]) -> Option<SystemInfo> {
             "[SystemInfo] GPU[{}]: {}  |  VRAM: {} GB",
             g.index,
             g.device,
-            g.vram_gb.map(|v| format!("{:.1}", v)).unwrap_or_else(|| "?".into())
+            g.vram_gb.map(|v| format!("{:.1}", v)).unwrap_or_else(|| "N/A".into())
         );
     }
 
-    Some(SystemInfo {
+    SystemInfo {
         cpu_name,
         ram_gb,
         ram_type: String::new(), // not shown in UI; expand via wmi crate if desired
         gpus: gpu_infos.to_vec(),
-    })
+    }
 }
 
 // ── CPU name ─────────────────────────────────────────────────────────────────
@@ -133,26 +128,32 @@ pub fn get_dedicated_vram_gb(adapter_index: usize) -> Option<f32> {
         adapter_index
     );
     let key = hklm.open_subkey(&path).ok()?;
-    let raw_val = key.get_raw_value("HardwareInformation.MemorySize").ok()?;
-    let raw = &raw_val.bytes;
 
-    let mem_bytes: u64 = if raw.len() >= 8 {
-        let mut buf = [0u8; 8];
-        buf.copy_from_slice(&raw[..8]);
-        u64::from_le_bytes(buf)
-    } else if raw.len() == 4 {
-        let mut buf = [0u8; 4];
-        buf.copy_from_slice(&raw[..4]);
-        u32::from_le_bytes(buf) as u64
+    let mem_bytes: Option<u64> = if let Ok(raw_val) = key.get_raw_value("HardwareInformation.MemorySize") {
+        let raw = &raw_val.bytes;
+        if raw.len() >= 8 {
+            let mut buf = [0u8; 8];
+            buf.copy_from_slice(&raw[..8]);
+            Some(u64::from_le_bytes(buf))
+        } else if raw.len() >= 4 {
+            let mut buf = [0u8; 4];
+            buf.copy_from_slice(&raw[..4]);
+            Some(u32::from_le_bytes(buf) as u64)
+        } else {
+            None
+        }
+    } else if let Ok(qw) = key.get_value::<u64, _>("HardwareInformation.qwMemorySize") {
+        Some(qw)
     } else {
-        return None;
+        None
     };
 
-    if mem_bytes == 0 {
+    let bytes = mem_bytes?;
+    if bytes == 0 {
         return None;
     }
 
     // Round to 1 decimal place (e.g. 8.0 GB, 16.0 GB)
-    let gb = mem_bytes as f64 / (1024_f64.powi(3));
+    let gb = bytes as f64 / (1024_f64.powi(3));
     Some(((gb * 10.0).round() / 10.0) as f32)
 }

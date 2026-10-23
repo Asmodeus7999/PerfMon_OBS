@@ -85,8 +85,12 @@ pub fn run() {
                     match lhm.get_data() {
                         Some((sensors, gpu_infos)) => {
                             error_count = 0;
-                            if sys_info_cache.is_none() && !gpu_infos.is_empty() {
-                                sys_info_cache = sysinfo::build_system_info(&gpu_infos);
+                            if sys_info_cache.is_none() {
+                                sys_info_cache = Some(sysinfo::build_system_info(&gpu_infos));
+                            } else if let Some(ref mut cached) = sys_info_cache {
+                                if cached.gpus.is_empty() && !gpu_infos.is_empty() {
+                                    *cached = sysinfo::build_system_info(&gpu_infos);
+                                }
                             }
 
                             if let Some(ref sys_info) = sys_info_cache {

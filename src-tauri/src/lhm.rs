@@ -206,6 +206,7 @@ impl LhmReader {
     fn parse_tree(root: LhmNode) -> Option<(Vec<SensorEntry>, Vec<GpuInfo>)> {
         let mut entries = Vec::new();
         let mut gpus = HashMap::new();
+        let mut gpu_id_map: HashMap<String, u32> = HashMap::new();
 
         // Recursively search the JSON tree for Sensors
         // Queue holds: (Node, Current Hardware ID, Current Hardware Name)
@@ -234,27 +235,32 @@ impl LhmReader {
 
                 let mut gpu_idx = 0xFFFFFFFF;
                 if is_gpu {
-                    // Extract GPU index from /gpu-amd/0
-                    if let Some(idx_str) = hid.split('/').last() {
-                        if let Ok(idx) = idx_str.parse::<u32>() {
-                            gpu_idx = idx;
-                            gpus.entry(idx).or_insert_with(|| GpuInfo {
-                                index: idx as usize,
-                                device: hw_name.clone(),
-                                family: "Unknown".to_string(),
-                                vram_gb: crate::sysinfo::get_dedicated_vram_gb(idx as usize),
-                            });
-                        }
-                    }
+                    let next_idx = gpu_id_map.len() as u32;
+                    let idx = *gpu_id_map.entry(hid.clone()).or_insert_with(|| {
+                        // Extract GPU index from /gpu-amd/0 or /gpu-nvidia/0 if numeric,
+                        // otherwise assign next available index (0, 1, ...) for integrated GPUs
+                        hid.split('/')
+                            .last()
+                            .and_then(|s| s.parse::<u32>().ok())
+                            .unwrap_or(next_idx)
+                    });
+
+                    gpu_idx = idx;
+                    gpus.entry(idx).or_insert_with(|| GpuInfo {
+                        index: idx as usize,
+                        device: hw_name.clone(),
+                        family: "Unknown".to_string(),
+                        vram_gb: crate::sysinfo::get_dedicated_vram_gb(idx as usize),
+                    });
                 }
 
                 // Map LHM node to the numeric SRC id the frontend expects (see state.js)
                 let src_id = if is_gpu {
                     match t.as_str() {
-                        "Temperature" if lower_name.contains("core") => Some(0x00),
-                        "Clock"       if lower_name.contains("core") => Some(0x20),
-                        "Load"        if lower_name.contains("core") => Some(0x30),
-                        "SmallData"   if lower_name == "gpu memory used" => Some(0x31),
+                        "Temperature" if lower_name.contains("core") || lower_name.contains("gpu") => Some(0x00),
+                        "Clock"       if lower_name.contains("core") || lower_name.contains("gpu") => Some(0x20),
+                        "Load"        if lower_name.contains("core") || lower_name == "d3d 3d" || lower_name.contains("gpu") => Some(0x30),
+                        "SmallData" | "Data" if lower_name == "gpu memory used" || lower_name.contains("memory used") => Some(0x31),
                         "Power"       if lower_name.contains("package") || lower_name.contains("gpu power") || lower_name.contains("total") => Some(0x61),
                         _ => None
                     }
@@ -302,7 +308,7 @@ impl LhmReader {
                     if let Some(mut final_value) = parsed_val {
                         let mut final_units = units;
 
-                        if id == 0x91 && t == "Data" {
+                        if (id == 0x91 || id == 0x31) && t == "Data" {
                             // LHM web server outputs RAM in GB; the frontend expects MB.
                             final_value *= 1024.0;
                             final_units = "MB".to_string();

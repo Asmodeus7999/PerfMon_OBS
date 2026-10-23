@@ -40,6 +40,8 @@ body[data-theme="classic"] {
     /* VRAM label (green) */
     --classic-fps: #c08080;
     /* FPS label (pink) */
+    --classic-header: 82px;
+    /* row label column width (fits i3-7020U, R7 7800X3D, RTX4090, etc.) */
     --classic-col1: 72px;
     /* first value column (load / RAM / FPS) */
     --classic-col2: 84px;
@@ -81,7 +83,7 @@ body[data-theme="classic"] .card::before {
 
 /* Row label column */
 body[data-theme="classic"] .card-header {
-    width: 62px;
+    width: var(--classic-header, 82px);
     flex: none;
     gap: 0;
 }
@@ -233,7 +235,7 @@ body[data-theme="classic"] #box-vram-usage .stat-label {
    viewport) keeps it out of the grid so VRAM alignment is undisturbed. */
 body[data-theme="classic"] #settings-btn {
     right: auto;
-    left: 326px;                 /* aligns exactly with the start of col4 (Temp column) */
+    left: calc(12px + var(--classic-header, 82px) + 6px + var(--classic-col1) + 6px + var(--classic-col2) + 6px + var(--classic-col3) + 6px);
     top: 68px;                   /* vertical center of the RAM row */
     transform: translateY(-50%);
     padding: 2px 7px;
